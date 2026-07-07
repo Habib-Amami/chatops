@@ -4,7 +4,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,7 +31,9 @@ class Settings(BaseSettings):
     kubernetes_context: str = "minikube"
     kubernetes_in_cluster: bool = False
     kubeconfig: Path = Path.home() / ".kube" / "config"
-    kubernetes_allowed_namespaces: list[str] = ["default", "chatops-demo"]
+    kubernetes_allowed_namespaces: list[str] = Field(
+        default_factory=lambda: ["default", "chatops-demo"]
+    )
     allow_real_kubernetes: bool = False
 
     langsmith_tracing: bool = False
