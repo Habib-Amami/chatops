@@ -7,7 +7,7 @@ from app.platforms.kubernetes import KubernetesClientFactory
 
 
 def test_aws_factory_configures_and_reuses_localstack_client() -> None:
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     session = MagicMock()
     expected_client = MagicMock()
     session.client.return_value = expected_client
@@ -28,8 +28,8 @@ def test_aws_factory_configures_and_reuses_localstack_client() -> None:
 
 
 def test_aws_factory_uses_default_credential_chain_for_real_aws() -> None:
-    settings = Settings(
-        _env_file=None,
+    settings = Settings(  
+        _env_file=None, # pyright: ignore[reportCallIssue]
         aws_target="aws",
         aws_endpoint_url=None,
         allow_real_aws=True,
@@ -49,7 +49,7 @@ def test_kubernetes_factory_loads_and_reuses_kubeconfig_client(
     expected_client = MagicMock()
     new_client_from_config.return_value = expected_client
     settings = Settings(
-        _env_file=None,
+        _env_file=None, # pyright: ignore[reportCallIssue]
         kubeconfig=Path("/tmp/test-kubeconfig"),
     )
     factory = KubernetesClientFactory(settings)
@@ -74,7 +74,7 @@ def test_kubernetes_factory_supports_in_cluster_configuration(
     expected_client = MagicMock()
     api_client_class.return_value = expected_client
     settings = Settings(
-        _env_file=None,
+        _env_file=None, # pyright: ignore[reportCallIssue]
         kubernetes_target="kubernetes",
         kubernetes_context="production",
         kubernetes_in_cluster=True,
