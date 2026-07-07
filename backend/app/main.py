@@ -1,13 +1,13 @@
 from fastapi import FastAPI
 
-app = FastAPI(title="ChatOps API")
+from app.api import api_router
+from app.api.routes import health
 
+# Create FastAPI app instance
+def create_app() -> FastAPI:
+    app = FastAPI(title="ChatOps API")
+    app.include_router(health.router)
+    app.include_router(api_router, prefix="/api/v1")
+    return app
 
-@app.get("/")
-async def root() -> dict[str, str]:
-    return {"message": "ChatOps API"}
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+app = create_app()
