@@ -54,18 +54,10 @@ def test_localstack_credentials_cannot_be_empty() -> None:
         )
 
 
-def test_langsmith_tracing_requires_api_key() -> None:
-    with pytest.raises(ValidationError, match="LANGSMITH_API_KEY"):
-        Settings(
-            _env_file=None, # pyright: ignore[reportCallIssue]
-            langsmith_tracing=True,
-        )
-
-
 def test_secret_values_are_masked_in_settings_representation() -> None:
     settings = Settings(
         _env_file=None, # pyright: ignore[reportCallIssue]
-        langsmith_api_key="private-key",
+        aws_access_key_id="private-key",
     )
 
     assert "private-key" not in repr(settings)

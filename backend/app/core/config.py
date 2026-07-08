@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     app_environment: Literal["development", "test", "production"] = "development"
     log_level: str = "INFO"
 
+    model_provider: str | None = None
+    model_name: str | None = None
+    model_api_key: SecretStr | None = None
+
     aws_target: Literal["localstack", "aws"] = "localstack"
     aws_region: str = "us-east-1"
     aws_endpoint_url: str | None = "http://localhost:4566"
@@ -35,10 +39,6 @@ class Settings(BaseSettings):
         default_factory=lambda: ["default", "chatops-demo"]
     )
     allow_real_kubernetes: bool = False
-
-    langsmith_tracing: bool = False
-    langsmith_api_key: SecretStr | None = None
-    langsmith_project: str = "chatops-dev"
 
     @field_validator("kubeconfig")
     @classmethod
@@ -68,14 +68,6 @@ class Settings(BaseSettings):
             )
         if not self.kubernetes_allowed_namespaces:
             raise ValueError("At least one Kubernetes namespace must be allowed")
-
-        if self.langsmith_tracing and (
-            self.langsmith_api_key is None
-            or not self.langsmith_api_key.get_secret_value()
-        ):
-            raise ValueError(
-                "LANGSMITH_API_KEY is required when LANGSMITH_TRACING=true"
-            )
 
         return self
 
