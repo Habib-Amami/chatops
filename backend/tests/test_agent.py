@@ -81,7 +81,8 @@ def test_agent_executes_pod_tool_without_live_model() -> None:
             ]
         )
     )
-    agent = create_chatops_agent(model, pod_service)
+    deployment_manager_service = MagicMock()
+    agent = create_chatops_agent(model, pod_service, deployment_manager_service)
 
     result = agent.invoke(
         {
