@@ -79,3 +79,37 @@ def test_agent_service_rejects_missing_final_assistant_message() -> None:
                 request_id="request-1",
             )
         )
+
+
+def test_agent_service_converts_graph_errors_to_invocation_errors() -> None:
+    agent = MagicMock()
+    agent.ainvoke = AsyncMock(side_effect=RuntimeError("rate limited"))
+    service = AgentService(agent)
+
+    with pytest.raises(AgentInvocationError, match="failed"):
+        asyncio.run(
+            service.invoke(
+                message="hello",
+                thread_id="thread-1",
+                request_id="request-1",
+            )
+        )
+
+
+def test_agent_service_times_out_slow_graph_invocation() -> None:
+    async def slow_invoke(*args: object, **kwargs: object) -> dict[str, object]:
+        await asyncio.sleep(1)
+        return {"messages": [AIMessage(content="too late")]}
+
+    agent = MagicMock()
+    agent.ainvoke = AsyncMock(side_effect=slow_invoke)
+    service = AgentService(agent, timeout_seconds=0.01)
+
+    with pytest.raises(AgentInvocationError, match="timed out"):
+        asyncio.run(
+            service.invoke(
+                message="hello",
+                thread_id="thread-1",
+                request_id="request-1",
+            )
+        )

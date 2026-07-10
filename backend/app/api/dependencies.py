@@ -17,4 +17,4 @@ def get_agent_service() -> AgentService:
     pod_service = PodService(settings, kubernetes_clients)
     model = ChatModelFactory(settings).get_model()
     agent = create_chatops_agent(model, pod_service)
-    return AgentService(agent)
+    return AgentService(agent, timeout_seconds=settings.agent_timeout_seconds)
