@@ -53,17 +53,24 @@ class AgentService:
             },
         }
 
-        result = await self._agent.ainvoke(
-            {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": normalized_message,
-                    }
-                ]
-            },
-            config=config,
-        )
+        try:
+            result = await self._agent.ainvoke(
+                {
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": normalized_message,
+                        }
+                    ]
+                },
+                config=config,
+            )
+        except Exception as exc:
+            # Catch Groq rate-limit (429), request-too-large (413), bad-request (400),
+            # and any other LLM/graph error so it never crashes the ASGI layer.
+            raise AgentInvocationError(
+                f"LLM invocation failed: {type(exc).__name__}: {exc}"
+            ) from exc
 
         messages = result.get("messages") if isinstance(result, dict) else None
         if not messages or not isinstance(messages[-1], AIMessage):

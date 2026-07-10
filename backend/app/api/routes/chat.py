@@ -1,13 +1,16 @@
 """ChatOps agent HTTP endpoint."""
 
+import logging
 from typing import Annotated
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
 from app.agent import AgentInvocationError, AgentService
 from app.api.dependencies import get_agent_service
 from app.api.schemas import ChatRequest, ChatResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
 
@@ -27,10 +30,26 @@ async def chat(
             thread_id=str(thread_id),
             request_id=str(request_id),
         )
+        return ChatResponse.model_validate(response.model_dump())
     except AgentInvocationError as error:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="The agent did not produce a valid response",
-        ) from error
-
-    return ChatResponse.model_validate(response.model_dump())
+        # Return a friendly chat message instead of crashing the connection.
+        # This prevents "Connection error: Failed to fetch" in the frontend.
+        logger.error("Agent invocation failed: %s", error)
+        error_str = str(error)
+        if "rate_limit" in error_str or "429" in error_str:
+            msg = (
+                "⚠️ The AI model is temporarily rate-limited. "
+                "Please wait a moment and try again."
+            )
+        elif "413" in error_str or "too large" in error_str.lower():
+            msg = (
+                "⚠️ Your request is too long for the current model. "
+                "Please start a new chat session and try a shorter command."
+            )
+        else:
+            msg = f"⚠️ The agent encountered an error: {error}"
+        return ChatResponse(
+            content=msg,
+            thread_id=str(thread_id),
+            request_id=str(request_id),
+        )
