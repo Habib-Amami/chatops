@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     )
     allow_real_kubernetes: bool = False
 
+    s3_allowed_buckets: list[str] = Field(
+        default_factory=lambda: ["opstasks-logs", "opstasks-assets"]
+    )
+
     @field_validator("kubeconfig")
     @classmethod
     def expand_kubeconfig_path(cls, value: Path) -> Path:
@@ -76,3 +80,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return one settings instance for the application process."""
     return Settings()
+# Ce fichier est déjà complet — on va juste modifier la classe Settings
