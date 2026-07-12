@@ -9,6 +9,7 @@ from app.platforms.aws import AWSClientFactory
 from app.platforms.aws.services import S3Service
 from app.platforms.kubernetes import KubernetesClientFactory
 from app.platforms.kubernetes.services import PodService
+from app.platforms.kubernetes.services.deployment_manager_service import DeploymentManagerService
 
 
 @lru_cache
@@ -19,6 +20,10 @@ def get_agent_service() -> AgentService:
     # Kubernetes
     kubernetes_clients = KubernetesClientFactory(settings)
     pod_service = PodService(settings, kubernetes_clients)
+    deployment_manager_service = DeploymentManagerService(
+        settings,
+        kubernetes_clients
+    )
 
     # AWS / LocalStack
     aws_clients = AWSClientFactory(settings)
@@ -26,6 +31,11 @@ def get_agent_service() -> AgentService:
 
     # Agent
     model = ChatModelFactory(settings).get_model()
-    agent = create_chatops_agent(model, pod_service, s3_service)
+    agent = create_chatops_agent(
+        model,
+        pod_service,
+        s3_service,
+        deployment_manager_service
+    )
 
     return AgentService(agent)
