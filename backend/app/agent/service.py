@@ -1,5 +1,6 @@
 """Application service for ChatOps agent invocations."""
 
+import asyncio
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -25,8 +26,11 @@ class AgentService:
     def __init__(
         self,
         agent: CompiledStateGraph[Any, Any, Any, Any],
+        *,
+        timeout_seconds: float = 45.0,
     ) -> None:
         self._agent = agent
+        self._timeout_seconds = timeout_seconds
 
     async def invoke(
         self,
@@ -53,17 +57,25 @@ class AgentService:
             },
         }
 
-        result = await self._agent.ainvoke(
-            {
-                "messages": [
+        try:
+            result = await asyncio.wait_for(
+                self._agent.ainvoke(
                     {
-                        "role": "user",
-                        "content": normalized_message,
-                    }
-                ]
-            },
-            config=config,
-        )
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": normalized_message,
+                            }
+                        ]
+                    },
+                    config=config,
+                ),
+                timeout=self._timeout_seconds,
+            )
+        except TimeoutError as error:
+            raise AgentInvocationError("Agent invocation timed out") from error
+        except Exception as error:
+            raise AgentInvocationError("Agent invocation failed") from error
 
         messages = result.get("messages") if isinstance(result, dict) else None
         if not messages or not isinstance(messages[-1], AIMessage):

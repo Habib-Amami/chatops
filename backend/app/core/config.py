@@ -23,6 +23,9 @@ class Settings(BaseSettings):
     model_provider: str | None = None
     model_name: str | None = None
     model_api_key: SecretStr | None = None
+    model_timeout_seconds: float = Field(default=30.0, gt=0)
+    model_max_retries: int = Field(default=0, ge=0)
+    agent_timeout_seconds: float = Field(default=45.0, gt=0)
 
     aws_target: Literal["localstack", "aws"] = "localstack"
     aws_region: str = "us-east-1"
