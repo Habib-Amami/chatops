@@ -1,1 +1,25 @@
 .vscode/
+.idea/
+
+# Windows system files
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.lnk
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python virtual environments (if created at root)
+.venv/
+env/
+venv/
+ENV/
+
+# Temporary and backup files
+*.swp
+*~
+.nfs*
