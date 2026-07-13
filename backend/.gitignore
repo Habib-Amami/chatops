@@ -24,3 +24,7 @@ share/python-wheels/
 # Logs and DB
 *.log
 .db
+
+# Executables
+kubectl.exe
+*.exe
