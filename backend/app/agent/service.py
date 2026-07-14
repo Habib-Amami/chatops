@@ -1,5 +1,6 @@
 """Application service for ChatOps agent invocations."""
 
+import asyncio
 from typing import Any
 
 from langchain_core.messages import AIMessage
@@ -25,8 +26,11 @@ class AgentService:
     def __init__(
         self,
         agent: CompiledStateGraph[Any, Any, Any, Any],
+        *,
+        timeout_seconds: float = 45.0,
     ) -> None:
         self._agent = agent
+        self._timeout_seconds = timeout_seconds
 
     async def invoke(
         self,
@@ -54,17 +58,22 @@ class AgentService:
         }
 
         try:
-            result = await self._agent.ainvoke(
-                {
-                    "messages": [
-                        {
-                            "role": "user",
-                            "content": normalized_message,
-                        }
-                    ]
-                },
-                config=config,
+            result = await asyncio.wait_for(
+                self._agent.ainvoke(
+                    {
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": normalized_message,
+                            }
+                        ]
+                    },
+                    config=config,
+                ),
+                timeout=self._timeout_seconds,
             )
+        except TimeoutError as error:
+            raise AgentInvocationError("Agent invocation timed out") from error
         except Exception as exc:
             # Catch Groq rate-limit (429), request-too-large (413), bad-request (400),
             # and any other LLM/graph error so it never crashes the ASGI layer.

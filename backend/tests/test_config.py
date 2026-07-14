@@ -17,6 +17,9 @@ def test_settings_default_to_local_platforms() -> None:
     assert settings.kubernetes_target == "minikube"
     assert settings.kubernetes_context == "minikube"
     assert settings.allow_real_kubernetes is False
+    assert settings.model_timeout_seconds == 30.0
+    assert settings.model_max_retries == 0
+    assert settings.agent_timeout_seconds == 45.0
 
 
 def test_settings_expand_kubeconfig_home_directory() -> None:

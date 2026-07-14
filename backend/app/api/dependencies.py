@@ -19,4 +19,4 @@ def get_agent_service() -> AgentService:
     deployment_manager_service = DeploymentManagerService(settings, kubernetes_clients)
     model = ChatModelFactory(settings).get_model()
     agent = create_chatops_agent(model, pod_service, deployment_manager_service)
-    return AgentService(agent)
+    return AgentService(agent, timeout_seconds=settings.agent_timeout_seconds)

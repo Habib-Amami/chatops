@@ -37,5 +37,7 @@ def test_model_factory_initializes_and_reuses_configured_model(
     init_chat_model.assert_called_once_with(
         model="example-model",
         model_provider="example-provider",
+        timeout=30.0,
+        max_retries=0,
         api_key="secret-key",
     )

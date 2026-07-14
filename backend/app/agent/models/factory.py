@@ -30,6 +30,9 @@ class ChatModelFactory:
             )
 
         model_options: dict[str, Any] = {}
+        model_options["timeout"] = self._settings.model_timeout_seconds
+        model_options["max_retries"] = self._settings.model_max_retries
+
         if self._settings.model_api_key is not None:
             model_options["api_key"] = (
                 self._settings.model_api_key.get_secret_value()
