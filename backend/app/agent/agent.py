@@ -8,17 +8,24 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.agent.prompts import CHATOPS_SYSTEM_PROMPT
 from app.agent.tools.kubernetes import create_pod_tools
+from app.agent.tools.kubernetes.deployment_manager_tools import create_deployment_manager_tools
 from app.platforms.kubernetes.services import PodService
+from app.platforms.kubernetes.services.deployment_manager_service import DeploymentManagerService
 
 
 def create_chatops_agent(
     model: BaseChatModel,
     pod_service: PodService,
+    deployment_manager_service: DeploymentManagerService,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
-    """Create a provider-neutral, read-only agent with Kubernetes pod tools."""
+    """Create a provider-neutral agent with Kubernetes pod and deployment tools."""
+    tools = (
+        create_pod_tools(pod_service)
+        + create_deployment_manager_tools(deployment_manager_service)
+    )
     return create_agent(
         model=model,
-        tools=create_pod_tools(pod_service),
+        tools=tools,
         system_prompt=CHATOPS_SYSTEM_PROMPT,
         name="chatops-agent",
     )

@@ -60,9 +60,10 @@ def test_kubernetes_factory_loads_and_reuses_kubeconfig_client(
     assert first_client is expected_client
     assert second_client is expected_client
     new_client_from_config.assert_called_once_with(
-        config_file="/tmp/test-kubeconfig",
+        config_file=str(Path("/tmp/test-kubeconfig")),
         context="minikube",
     )
+
 
 
 @patch("app.platforms.kubernetes.client.kubernetes_client.ApiClient")

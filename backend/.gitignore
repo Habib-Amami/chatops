@@ -3,3 +3,28 @@ __pycache__/
 .pytest_cache/
 *.py[cod]
 .env
+
+# Python packaging & builds (ignores egg-info!)
+*.egg-info/
+build/
+dist/
+eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+
+# IDE directories
+.vscode/
+.idea/
+
+# Logs and DB
+*.log
+.db
+
+# Executables
+kubectl.exe
+*.exe
