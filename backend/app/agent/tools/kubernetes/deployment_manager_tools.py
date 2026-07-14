@@ -162,6 +162,101 @@ def create_deployment_manager_tools(
             namespace=namespace,
         )
 
+    @tool
+    def pause_kubernetes_deployment(
+        name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Pause a Kubernetes deployment to suspend its rollout controller.
+
+        Use this when the user asks to pause, suspend, or freeze a deployment
+        (e.g. 'pause deployment backend in demo-app').
+
+        While paused, any spec changes (like image updates) are staged but
+        NOT applied. The deployment resumes all staged changes at once when
+        resume_kubernetes_deployment is called.
+
+        Args:
+            name:      Deployment name (e.g. 'backend').
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return deployment_manager_service.pause_deployment(
+            name=name,
+            namespace=namespace,
+        )
+
+    @tool
+    def resume_kubernetes_deployment(
+        name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Resume a paused Kubernetes deployment to apply its pending rollout.
+
+        Use this when the user asks to resume, unfreeze, or unpause a deployment
+        (e.g. 'resume deployment backend in demo-app').
+
+        All spec changes accumulated while the deployment was paused are
+        applied immediately as a single rolling update.
+
+        Args:
+            name:      Deployment name (e.g. 'backend').
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return deployment_manager_service.resume_deployment(
+            name=name,
+            namespace=namespace,
+        )
+
+    @tool
+    def diagnose_kubernetes_pod_status(
+        pod_name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Deeply inspect a pod's container states when logs are unavailable.
+
+        USE THIS when:
+        - The pod has no logs (container never started)
+        - You need the exact Kubernetes 'reason' and 'message' from the
+          container state (e.g. 'CrashLoopBackOff', 'ImagePullBackOff',
+          'OOMKilled', 'Error', 'Completed')
+        - You want restart count and readiness state per container
+
+        Returns structured container-level state details that complement
+        get_kubernetes_pod_events. Use both together for full diagnosis.
+
+        Args:
+            pod_name:  Exact pod name (e.g. 'backend-75bbccfb77-rzllv').
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return deployment_manager_service.diagnose_pod_status(
+            pod_name=pod_name,
+            namespace=namespace,
+        )
+
+    @tool
+    def verify_kubernetes_service_selector(
+        service_name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Verify that a Kubernetes Service's selector matches at least one live pod.
+
+        USE THIS when:
+        - The user reports that a service is unreachable or traffic is dropped
+        - You suspect a labels mismatch between the Service selector and pod labels
+        - You want to confirm how many Running pods are bound to a service
+
+        Returns the selector, the list of matched pods, and an explicit
+        LABELS MISMATCH alert if no pod matches the service selector.
+
+        Args:
+            service_name: Kubernetes Service name (e.g. 'backend', 'frontend').
+            namespace:    Kubernetes namespace (must be in the allowed list).
+        """
+        return deployment_manager_service.verify_service_selector(
+            service_name=service_name,
+            namespace=namespace,
+        )
+
     return [
         scale_kubernetes_deployment,
         restart_kubernetes_deployment,
@@ -170,4 +265,8 @@ def create_deployment_manager_tools(
         get_kubernetes_pod_logs,
         delete_kubernetes_pod,
         get_kubernetes_pod_events,
+        pause_kubernetes_deployment,
+        resume_kubernetes_deployment,
+        diagnose_kubernetes_pod_status,
+        verify_kubernetes_service_selector,
     ]
