@@ -8,6 +8,7 @@ __pycache__/
 
 # Variables d'environnement (contient des secrets potentiels)
 .env
+.langgraph_api/
 
 # Python packaging & builds (ignores egg-info!)
 *.egg-info/
