@@ -8,8 +8,12 @@ from langgraph.graph.state import CompiledStateGraph
 from app.agent import create_chatops_agent
 from app.agent.models import ChatModelFactory
 from app.core import get_settings
+from app.platforms.aws import AWSClientFactory, EC2Service
 from app.platforms.kubernetes import KubernetesClientFactory
 from app.platforms.kubernetes.services import PodService
+from app.platforms.kubernetes.services.deployment_manager_service import (
+    DeploymentManagerService,
+)
 
 
 def build_graph(
@@ -25,6 +29,14 @@ def build_graph(
 
     settings = get_settings()
     kubernetes_clients = KubernetesClientFactory(settings)
+    aws_clients = AWSClientFactory(settings)
     pod_service = PodService(settings, kubernetes_clients)
+    deployment_manager_service = DeploymentManagerService(settings, kubernetes_clients)
+    ec2_service = EC2Service(aws_clients)
     model = ChatModelFactory(settings).get_model()
-    return create_chatops_agent(model, pod_service)
+    return create_chatops_agent(
+        model,
+        pod_service,
+        deployment_manager_service,
+        ec2_service,
+    )

@@ -7,8 +7,10 @@ from langchain_core.language_models import BaseChatModel
 from langgraph.graph.state import CompiledStateGraph
 
 from app.agent.prompts import CHATOPS_SYSTEM_PROMPT
+from app.agent.tools.aws import create_ec2_tools
 from app.agent.tools.kubernetes import create_pod_tools
 from app.agent.tools.kubernetes.deployment_manager_tools import create_deployment_manager_tools
+from app.platforms.aws import EC2Service
 from app.platforms.kubernetes.services import PodService
 from app.platforms.kubernetes.services.deployment_manager_service import DeploymentManagerService
 
@@ -17,11 +19,13 @@ def create_chatops_agent(
     model: BaseChatModel,
     pod_service: PodService,
     deployment_manager_service: DeploymentManagerService,
+    ec2_service: EC2Service,
 ) -> CompiledStateGraph[Any, Any, Any, Any]:
-    """Create a provider-neutral agent with Kubernetes pod and deployment tools."""
+    """Create a provider-neutral agent with Kubernetes and AWS tools."""
     tools = (
         create_pod_tools(pod_service)
         + create_deployment_manager_tools(deployment_manager_service)
+        + create_ec2_tools(ec2_service)
     )
     return create_agent(
         model=model,
