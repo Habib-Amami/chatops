@@ -5,6 +5,8 @@ description = "FastAPI backend for ChatOps"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "awscli>=1.45.46",
+    "awscli-local>=0.22.2",
     "boto3>=1.43.42",
     "fastapi[standard]>=0.116.0",
     "kubernetes>=36.0.2",

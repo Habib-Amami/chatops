@@ -13,6 +13,7 @@ from app.api.schemas import ChatRequest, ChatResponse
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -34,7 +35,14 @@ async def chat(
     except AgentInvocationError as error:
         # Return a friendly chat message instead of crashing the connection.
         # This prevents "Connection error: Failed to fetch" in the frontend.
-        logger.error("Agent invocation failed: %s", error)
+        logger.error(
+            "Agent invocation failed",
+            extra={
+                "thread_id": str(thread_id),
+                "request_id": str(request_id),
+            },
+            exc_info=True,
+        )
         error_str = str(error)
         if "rate_limit" in error_str or "429" in error_str:
             msg = (
