@@ -1,7 +1,12 @@
+# Environnement virtuel (géré par uv)
 .venv/
+
+# Cache Python
 __pycache__/
-.pytest_cache/
-*.py[cod]
+*.pyc
+*.pyo
+
+# Variables d'environnement (contient des secrets potentiels)
 .env
 
 # Python packaging & builds (ignores egg-info!)
@@ -17,13 +22,30 @@ var/
 wheels/
 share/python-wheels/
 
-# IDE directories
+# Cache uv
+.uv_cache/
+
+# Scripts de test manuels temporaires
+scratch_*.py
+
+# Cache pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+htmlcov/
+
+# IDE / Éditeurs
 .vscode/
 .idea/
 
 # Logs and DB
 *.log
 .db
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Executables
 kubectl.exe
