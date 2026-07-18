@@ -1,6 +1,6 @@
 "use client";
 
-import { Thread } from "@/components/thread";
+import { InfrastructureWorkspace } from "@/components/infrastructure-workspace";
 import { StreamProvider } from "@/providers/Stream";
 import { ThreadProvider } from "@/providers/Thread";
 import { ArtifactProvider } from "@/components/thread/artifact";
@@ -14,7 +14,7 @@ export default function DemoPage(): React.ReactNode {
       <ThreadProvider>
         <StreamProvider>
           <ArtifactProvider>
-            <Thread />
+            <InfrastructureWorkspace />
           </ArtifactProvider>
         </StreamProvider>
       </ThreadProvider>
