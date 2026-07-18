@@ -11,8 +11,11 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Agent Chat",
-  description: "Agent Chat UX by LangChain",
+  title: "ChatOps | Infrastructure Assistant",
+  description: "AI-assisted operations for Kubernetes and AWS infrastructure.",
+  icons: {
+    icon: "/brand/talan-icon.jpeg",
+  },
 };
 
 export default function RootLayout({

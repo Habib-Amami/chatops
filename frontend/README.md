@@ -34,6 +34,7 @@ The default development configuration connects to the local graph named `agent`:
 NEXT_PUBLIC_API_URL=http://localhost:2024
 NEXT_PUBLIC_ASSISTANT_ID=agent
 NEXT_PUBLIC_AUTH_SCHEME=
+NEXT_PUBLIC_HEADLAMP_URL=http://192.168.49.2:YOUR_HEADLAMP_PORT
 ```
 
 Do not commit `.env`. Any LangSmith API key must remain server-side and must not
@@ -57,6 +58,20 @@ pnpm dev
 
 Open <http://localhost:3000>. The LangGraph API is available at
 <http://localhost:2024>.
+
+## Kubernetes dashboard
+
+The interface displays Headlamp beside the assistant on desktop and provides
+Chat and Dashboard tabs on smaller screens. Enable Headlamp and get its URL:
+
+```bash
+minikube addons enable headlamp
+minikube service headlamp -n headlamp --url
+```
+
+Set the returned URL as `NEXT_PUBLIC_HEADLAMP_URL` in `frontend/.env`, then
+restart the frontend. Headlamp handles its own login inside the dashboard panel;
+do not store its bearer token in a frontend environment variable.
 
 ## Available commands
 

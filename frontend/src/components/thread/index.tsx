@@ -12,7 +12,7 @@ import {
   DO_NOT_RENDER_ID_PREFIX,
   ensureToolCallsHaveResponses,
 } from "@/lib/ensure-tool-responses";
-import { LangGraphLogoSVG } from "../icons/langgraph";
+import { BrandLogo } from "../brand-logo";
 import { TooltipIconButton } from "./tooltip-icon-button";
 import {
   ArrowDown,
@@ -30,13 +30,6 @@ import { toast } from "sonner";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { Label } from "../ui/label";
 import { Switch } from "../ui/switch";
-import { GitHubSVG } from "../icons/github";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "../ui/tooltip";
 import { useFileUpload } from "@/hooks/use-file-upload";
 import { ContentBlocksPreview } from "./ContentBlocksPreview";
 import {
@@ -84,30 +77,6 @@ function ScrollToBottom(props: { className?: string }) {
       <ArrowDown className="h-4 w-4" />
       <span>Scroll to bottom</span>
     </Button>
-  );
-}
-
-function OpenGitHubRepo() {
-  return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <a
-            href="https://github.com/langchain-ai/agent-chat-ui"
-            target="_blank"
-            className="flex items-center justify-center"
-          >
-            <GitHubSVG
-              width="24"
-              height="24"
-            />
-          </a>
-        </TooltipTrigger>
-        <TooltipContent side="left">
-          <p>Open GitHub repo</p>
-        </TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
   );
 }
 
@@ -256,10 +225,10 @@ export function Thread() {
   );
 
   return (
-    <div className="flex h-screen w-full overflow-hidden">
+    <div className="relative flex h-full min-h-0 w-full overflow-hidden">
       <div className="relative hidden lg:flex">
         <motion.div
-          className="absolute z-20 h-full overflow-hidden border-r bg-white"
+          className="absolute z-20 h-full overflow-hidden border-r bg-white shadow-xl"
           style={{ width: 300 }}
           animate={
             isLargeScreen
@@ -282,6 +251,15 @@ export function Thread() {
         </motion.div>
       </div>
 
+      {chatHistoryOpen && isLargeScreen && (
+        <button
+          type="button"
+          className="absolute inset-0 z-10 bg-black/10"
+          aria-label="Close conversation history"
+          onClick={() => setChatHistoryOpen(false)}
+        />
+      )}
+
       <div
         className={cn(
           "grid w-full grid-cols-[1fr_0fr] transition-all duration-500",
@@ -293,20 +271,6 @@ export function Thread() {
             "relative flex min-w-0 flex-1 flex-col overflow-hidden",
             !chatStarted && "grid-rows-[1fr]",
           )}
-          layout={isLargeScreen}
-          animate={{
-            marginLeft: chatHistoryOpen ? (isLargeScreen ? 300 : 0) : 0,
-            width: chatHistoryOpen
-              ? isLargeScreen
-                ? "calc(100% - 300px)"
-                : "100%"
-              : "100%",
-          }}
-          transition={
-            isLargeScreen
-              ? { type: "spring", stiffness: 300, damping: 30 }
-              : { duration: 0 }
-          }
         >
           {!chatStarted && (
             <div className="absolute top-0 left-0 z-10 flex w-full items-center justify-between gap-3 p-2 pl-4">
@@ -324,9 +288,6 @@ export function Thread() {
                     )}
                   </Button>
                 )}
-              </div>
-              <div className="absolute top-2 right-4 flex items-center">
-                <OpenGitHubRepo />
               </div>
             </div>
           )}
@@ -360,20 +321,22 @@ export function Thread() {
                     damping: 30,
                   }}
                 >
-                  <LangGraphLogoSVG
-                    width={32}
-                    height={32}
+                  <BrandLogo
+                    className="h-7"
+                    priority
                   />
-                  <span className="text-xl font-semibold tracking-tight">
-                    Agent Chat
+                  <span className="flex flex-col text-left leading-tight">
+                    <span className="text-lg font-semibold tracking-tight">
+                      ChatOps
+                    </span>
+                    <span className="text-muted-foreground text-xs font-medium">
+                      Infrastructure Assistant
+                    </span>
                   </span>
                 </motion.button>
               </div>
 
               <div className="flex items-center gap-4">
-                <div className="flex items-center">
-                  <OpenGitHubRepo />
-                </div>
                 <TooltipIconButton
                   size="lg"
                   className="p-4"
@@ -435,11 +398,20 @@ export function Thread() {
               footer={
                 <div className="sticky bottom-0 flex flex-col items-center gap-8 bg-white">
                   {!chatStarted && (
-                    <div className="flex items-center gap-3">
-                      <LangGraphLogoSVG className="h-8 flex-shrink-0" />
-                      <h1 className="text-2xl font-semibold tracking-tight">
-                        Agent Chat
-                      </h1>
+                    <div className="flex flex-col items-center gap-3 text-center sm:flex-row sm:gap-4 sm:text-left">
+                      <BrandLogo
+                        className="h-10 flex-shrink-0"
+                        priority
+                      />
+                      <div>
+                        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
+                          ChatOps Infrastructure Assistant
+                        </h1>
+                        <p className="text-muted-foreground mt-1 text-sm">
+                          Monitor and manage Minikube and LocalStack using
+                          natural language.
+                        </p>
+                      </div>
                     </div>
                   )}
 
