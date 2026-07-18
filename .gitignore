@@ -1,6 +1,9 @@
 .vscode/
 .idea/
 
+# Local agent working notes
+.agent/
+
 # Windows system files
 Thumbs.db
 Thumbs.db:encryptable
