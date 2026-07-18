@@ -33,12 +33,12 @@ The default development configuration connects to the local graph named `agent`:
 ```env
 NEXT_PUBLIC_API_URL=http://localhost:2024
 NEXT_PUBLIC_ASSISTANT_ID=agent
-NEXT_PUBLIC_AUTH_SCHEME=
-NEXT_PUBLIC_HEADLAMP_URL=http://192.168.49.2:YOUR_HEADLAMP_PORT
+NEXT_PUBLIC_HEADLAMP_URL=http://localhost:4466
 ```
 
-Do not commit `.env`. Any LangSmith API key must remain server-side and must not
-use the `NEXT_PUBLIC_` prefix.
+Do not commit `.env`. The frontend no longer accepts deployment URLs or API keys
+from the browser. This prevents credentials from being stored in browser local
+storage and makes the environment file the source of truth.
 
 ## Run the application
 
@@ -62,16 +62,23 @@ Open <http://localhost:3000>. The LangGraph API is available at
 ## Kubernetes dashboard
 
 The interface displays Headlamp beside the assistant on desktop and provides
-Chat and Dashboard tabs on smaller screens. Enable Headlamp and get its URL:
+Chat and Dashboard tabs on smaller screens. Enable Headlamp and expose it on
+the same hostname as the frontend:
 
 ```bash
 minikube addons enable headlamp
-minikube service headlamp -n headlamp --url
+kubectl port-forward -n headlamp service/headlamp 4466:80
 ```
 
-Set the returned URL as `NEXT_PUBLIC_HEADLAMP_URL` in `frontend/.env`, then
-restart the frontend. Headlamp handles its own login inside the dashboard panel;
-do not store its bearer token in a frontend environment variable.
+Set `NEXT_PUBLIC_HEADLAMP_URL=http://localhost:4466` in `frontend/.env`, then
+restart the frontend. Using `localhost` for both applications avoids iframe
+authentication problems caused by mixing `localhost` with the Minikube IP.
+Headlamp handles its own login inside the dashboard panel; do not store its
+bearer token in a frontend environment variable.
+
+The status shown above the iframe means that the Headlamp document loaded. It
+does not prove that the current Headlamp session is authenticated or that the
+cluster is healthy.
 
 ## Available commands
 
@@ -92,6 +99,30 @@ The frontend communicates with the compiled graph exported by
 
 The FastAPI server remains available for health checks and custom API endpoints,
 but this UI sends conversations through the LangGraph API.
+
+## Production API proxy
+
+Do not expose a LangGraph deployment credential through a `NEXT_PUBLIC_`
+variable or browser configuration form. Route frontend requests through the
+included Next.js API proxy instead:
+
+```env
+NEXT_PUBLIC_API_URL=/api
+NEXT_PUBLIC_ASSISTANT_ID=agent
+LANGGRAPH_API_URL=https://your-langgraph-deployment.example.com
+LANGSMITH_API_KEY=your-server-side-key
+```
+
+`LANGGRAPH_API_URL` and `LANGSMITH_API_KEY` are server-only values. Production
+still requires application authentication and per-user conversation/tool
+authorization; the proxy alone is not an authorization layer.
+
+## Current message support
+
+The ChatOps composer sends text messages. PDF and image uploads are hidden until
+the backend has an explicit ingestion/model contract, file-size limits, and a
+retention policy. Existing multimodal messages can still be rendered when they
+are present in an imported thread.
 
 ## Attribution
 
