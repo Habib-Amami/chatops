@@ -1,24 +1,26 @@
 import { validate } from "uuid";
-import { getApiKey } from "@/lib/api-key";
 import { Thread } from "@langchain/langgraph-sdk";
-import { useQueryState } from "nuqs";
 import {
   createContext,
-  useContext,
-  ReactNode,
   useCallback,
+  useContext,
+  useMemo,
   useState,
-  Dispatch,
-  SetStateAction,
+  type ReactNode,
 } from "react";
+
 import { createClient } from "./client";
 
+const THREAD_PAGE_SIZE = 30;
+
 interface ThreadContextType {
-  getThreads: () => Promise<Thread[]>;
   threads: Thread[];
-  setThreads: Dispatch<SetStateAction<Thread[]>>;
   threadsLoading: boolean;
-  setThreadsLoading: Dispatch<SetStateAction<boolean>>;
+  threadsLoadingMore: boolean;
+  threadsError: string | null;
+  hasMoreThreads: boolean;
+  refreshThreads: () => Promise<Thread[]>;
+  loadMoreThreads: () => Promise<void>;
 }
 
 const ThreadContext = createContext<ThreadContextType | undefined>(undefined);
@@ -26,55 +28,103 @@ const ThreadContext = createContext<ThreadContextType | undefined>(undefined);
 function getThreadSearchMetadata(
   assistantId: string,
 ): { graph_id: string } | { assistant_id: string } {
-  if (validate(assistantId)) {
-    return { assistant_id: assistantId };
-  } else {
-    return { graph_id: assistantId };
-  }
+  return validate(assistantId)
+    ? { assistant_id: assistantId }
+    : { graph_id: assistantId };
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : "Unable to load conversations";
 }
 
 export function ThreadProvider({ children }: { children: ReactNode }) {
-  const envApiUrl: string | undefined = process.env.NEXT_PUBLIC_API_URL;
-  const envAssistantId: string | undefined =
-    process.env.NEXT_PUBLIC_ASSISTANT_ID;
-  const envAuthScheme: string | undefined = process.env.NEXT_PUBLIC_AUTH_SCHEME;
-
-  const [apiUrl] = useQueryState("apiUrl", {
-    defaultValue: envApiUrl || "",
-  });
-  const [assistantId] = useQueryState("assistantId");
-  const [authScheme] = useQueryState("authScheme", {
-    defaultValue: envAuthScheme || "",
-  });
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
+  const assistantId = process.env.NEXT_PUBLIC_ASSISTANT_ID?.trim() ?? "";
   const [threads, setThreads] = useState<Thread[]>([]);
   const [threadsLoading, setThreadsLoading] = useState(false);
+  const [threadsLoadingMore, setThreadsLoadingMore] = useState(false);
+  const [threadsError, setThreadsError] = useState<string | null>(null);
+  const [hasMoreThreads, setHasMoreThreads] = useState(false);
 
-  const getThreads = useCallback(async (): Promise<Thread[]> => {
-    const resolvedAssistantId = assistantId || envAssistantId;
-    if (!apiUrl || !resolvedAssistantId) return [];
-    const client = createClient(
-      apiUrl,
-      getApiKey() ?? undefined,
-      authScheme || undefined,
-    );
+  const getThreadPage = useCallback(
+    async (offset: number): Promise<Thread[]> => {
+      if (!apiUrl || !assistantId) return [];
 
-    const threads = await client.threads.search({
-      metadata: {
-        ...getThreadSearchMetadata(resolvedAssistantId),
-      },
-      limit: 100,
-    });
+      const client = createClient(apiUrl);
+      return client.threads.search({
+        metadata: getThreadSearchMetadata(assistantId),
+        limit: THREAD_PAGE_SIZE,
+        offset,
+        sortBy: "updated_at",
+        sortOrder: "desc",
+      });
+    },
+    [apiUrl, assistantId],
+  );
 
-    return threads;
-  }, [apiUrl, assistantId, authScheme, envAssistantId]);
+  const refreshThreads = useCallback(async (): Promise<Thread[]> => {
+    setThreadsLoading(true);
+    setThreadsError(null);
 
-  const value = {
-    getThreads,
-    threads,
-    setThreads,
-    threadsLoading,
-    setThreadsLoading,
-  };
+    try {
+      const firstPage = await getThreadPage(0);
+      setThreads(firstPage);
+      setHasMoreThreads(firstPage.length === THREAD_PAGE_SIZE);
+      return firstPage;
+    } catch (error) {
+      setThreadsError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setThreadsLoading(false);
+    }
+  }, [getThreadPage]);
+
+  const loadMoreThreads = useCallback(async (): Promise<void> => {
+    if (threadsLoadingMore || !hasMoreThreads) return;
+
+    setThreadsLoadingMore(true);
+    setThreadsError(null);
+
+    try {
+      const nextPage = await getThreadPage(threads.length);
+      setThreads((current) => {
+        const knownIds = new Set(current.map((thread) => thread.thread_id));
+        return [
+          ...current,
+          ...nextPage.filter((thread) => !knownIds.has(thread.thread_id)),
+        ];
+      });
+      setHasMoreThreads(nextPage.length === THREAD_PAGE_SIZE);
+    } catch (error) {
+      setThreadsError(getErrorMessage(error));
+      throw error;
+    } finally {
+      setThreadsLoadingMore(false);
+    }
+  }, [getThreadPage, hasMoreThreads, threads.length, threadsLoadingMore]);
+
+  const value = useMemo(
+    () => ({
+      threads,
+      threadsLoading,
+      threadsLoadingMore,
+      threadsError,
+      hasMoreThreads,
+      refreshThreads,
+      loadMoreThreads,
+    }),
+    [
+      hasMoreThreads,
+      loadMoreThreads,
+      refreshThreads,
+      threads,
+      threadsError,
+      threadsLoading,
+      threadsLoadingMore,
+    ],
+  );
 
   return (
     <ThreadContext.Provider value={value}>{children}</ThreadContext.Provider>
