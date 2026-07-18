@@ -128,7 +128,7 @@ def create_deployment_manager_tools(
         """Delete/terminate a specific Kubernetes pod by name.
 
         Use this when the user explicitly requests to delete, terminate, destroy,
-        kill, or remove a pod (e.g. 'delete pod backend-abc-123 in demo-app').
+        kill, or remove a pod (e.g. 'delete pod api-abc-123 in team-a').
         Deleting a pod managed by a Deployment will cause Kubernetes to automatically
         replace it with a new pod.
         """
@@ -170,7 +170,7 @@ def create_deployment_manager_tools(
         """Pause a Kubernetes deployment to suspend its rollout controller.
 
         Use this when the user asks to pause, suspend, or freeze a deployment
-        (e.g. 'pause deployment backend in demo-app').
+        (e.g. 'pause deployment api in team-a').
 
         While paused, any spec changes (like image updates) are staged but
         NOT applied. The deployment resumes all staged changes at once when
@@ -193,7 +193,7 @@ def create_deployment_manager_tools(
         """Resume a paused Kubernetes deployment to apply its pending rollout.
 
         Use this when the user asks to resume, unfreeze, or unpause a deployment
-        (e.g. 'resume deployment backend in demo-app').
+        (e.g. 'resume deployment api in team-a').
 
         All spec changes accumulated while the deployment was paused are
         applied immediately as a single rolling update.
