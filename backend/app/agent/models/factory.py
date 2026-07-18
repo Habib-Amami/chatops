@@ -12,6 +12,14 @@ class ModelConfigurationError(ValueError):
     """Raised when a chat model has not been fully configured."""
 
 
+_GROQ_NON_TOOL_CALLING_MODELS = frozenset(
+    {
+        "meta-llama/llama-prompt-guard-2-22m",
+        "meta-llama/llama-prompt-guard-2-86m",
+    }
+)
+
+
 class ChatModelFactory:
     """Initialize and reuse the configured LangChain chat model."""
 
@@ -24,9 +32,21 @@ class ChatModelFactory:
         if self._model is not None:
             return self._model
 
-        if not self._settings.model_provider or not self._settings.model_name:
+        provider = (self._settings.model_provider or "").strip()
+        model_name = (self._settings.model_name or "").strip()
+        if not provider or not model_name:
             raise ModelConfigurationError(
                 "MODEL_PROVIDER and MODEL_NAME must be configured"
+            )
+
+        if (
+            provider.casefold() == "groq"
+            and model_name.casefold() in _GROQ_NON_TOOL_CALLING_MODELS
+        ):
+            raise ModelConfigurationError(
+                f"Groq model {model_name!r} is a content-moderation model and "
+                "does not support the local tool calling required by ChatOps. "
+                "Configure a Groq model with the Tool Use capability."
             )
 
         model_options: dict[str, Any] = {}
@@ -41,8 +61,8 @@ class ChatModelFactory:
         self._model = cast(
             BaseChatModel,
             init_chat_model(
-                model=self._settings.model_name,
-                model_provider=self._settings.model_provider,
+                model=model_name,
+                model_provider=provider,
                 **model_options,
             ),
         )

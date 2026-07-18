@@ -15,6 +15,27 @@ def test_model_factory_requires_provider_and_model_name() -> None:
         factory.get_model()
 
 
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "meta-llama/llama-prompt-guard-2-22m",
+        "meta-llama/llama-prompt-guard-2-86m",
+    ],
+)
+def test_model_factory_rejects_groq_prompt_guard_models(
+    model_name: str,
+) -> None:
+    settings = Settings(  # pyright: ignore[reportCallIssue]
+        _env_file=None,
+        model_provider="groq",
+        model_name=model_name,
+    )
+    factory = ChatModelFactory(settings)
+
+    with pytest.raises(ModelConfigurationError, match="Tool Use"):
+        factory.get_model()
+
+
 @patch("app.agent.models.factory.init_chat_model")
 def test_model_factory_initializes_and_reuses_configured_model(
     init_chat_model: MagicMock,
@@ -24,7 +45,7 @@ def test_model_factory_initializes_and_reuses_configured_model(
     settings = Settings(  # pyright: ignore[reportCallIssue]
         _env_file=None,
         model_provider="example-provider",
-        model_name="example-model",
+        model_name=" example-model ",
         model_api_key="secret-key",
     )
     factory = ChatModelFactory(settings)
