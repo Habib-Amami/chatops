@@ -1,8 +1,35 @@
 """Agent tools for active Kubernetes Deployment orchestration."""
 
-from typing import Any
+from collections.abc import Callable
+from typing import Any, TypeVar
+
 from langchain.tools import BaseTool, tool
-from app.platforms.kubernetes.services.deployment_manager_service import DeploymentManagerService
+from langchain_core.tools import ToolException
+
+from app.platforms.kubernetes import KubernetesOperationError
+from app.platforms.kubernetes.services.deployment_manager_service import (
+    DeploymentManagerService,
+)
+
+T = TypeVar("T")
+
+INVALID_DEPLOYMENT_TOOL_INPUT_MESSAGE = (
+    "Kubernetes deployment operation could not run because required parameters "
+    "were missing or invalid. Do not retry until the deployment name, namespace, "
+    "and any operation-specific values are known."
+)
+
+
+def _call_deployment_service(call: Callable[[], T]) -> T:
+    """Convert platform and policy failures into handled tool errors."""
+    try:
+        return call()
+    except (KubernetesOperationError, PermissionError) as error:
+        raise ToolException(str(error)) from error
+
+
+def _format_deployment_tool_error(error: ToolException) -> str:
+    return f"Kubernetes deployment operation failed: {error}"
 
 
 def create_deployment_manager_tools(
@@ -18,14 +45,16 @@ def create_deployment_manager_tools(
     ) -> dict[str, Any]:
         """Scale a Kubernetes deployment dynamically to a desired number of replicas.
 
-        Use this when the user asks to scale up/down, resize, or change the replica 
-        count of a deployment (e.g., 'scale deployment frontend to 3 replicas' or 
+        Use this when the user asks to scale up/down, resize, or change the replica
+        count of a deployment (e.g., 'scale deployment frontend to 3 replicas' or
         'set replicas for database to 1').
         """
-        return deployment_manager_service.scale_deployment(
-            name=name,
-            namespace=namespace,
-            replicas=replicas,
+        return _call_deployment_service(
+            lambda: deployment_manager_service.scale_deployment(
+                name=name,
+                namespace=namespace,
+                replicas=replicas,
+            )
         )
 
     @tool
@@ -35,12 +64,14 @@ def create_deployment_manager_tools(
     ) -> dict[str, Any]:
         """Trigger a rolling restart of a Kubernetes deployment.
 
-        Use this to replace or restart failed pods, clear stuck states, or refresh 
+        Use this to replace or restart failed pods, clear stuck states, or refresh
         configuration by performing a rollout restart (equivalent to 'kubectl rollout restart').
         """
-        return deployment_manager_service.restart_deployment(
-            name=name,
-            namespace=namespace,
+        return _call_deployment_service(
+            lambda: deployment_manager_service.restart_deployment(
+                name=name,
+                namespace=namespace,
+            )
         )
 
     @tool
@@ -52,14 +83,16 @@ def create_deployment_manager_tools(
     ) -> dict[str, Any]:
         """Update a container image inside a Kubernetes deployment.
 
-        Use this to perform rolling updates of container images (e.g., 'update the backend 
+        Use this to perform rolling updates of container images (e.g., 'update the backend
         container image to my-image:v2' or 'upgrade frontend image to version 1.2.3').
         """
-        return deployment_manager_service.update_deployment_image(
-            name=name,
-            namespace=namespace,
-            container_name=container_name,
-            new_image=new_image,
+        return _call_deployment_service(
+            lambda: deployment_manager_service.update_deployment_image(
+                name=name,
+                namespace=namespace,
+                container_name=container_name,
+                new_image=new_image,
+            )
         )
 
     @tool
@@ -75,91 +108,12 @@ def create_deployment_manager_tools(
         version (e.g., 'rollback deployment frontend', 'undo last deployment for backend',
         or 'rollback frontend to revision 2').
         """
-        return deployment_manager_service.rollback_deployment(
-            name=name,
-            namespace=namespace,
-            revision=revision,
-        )
-
-    @tool
-    def get_kubernetes_pod_logs(
-        pod_name: str,
-        namespace: str,
-        tail_lines: int = 50,
-    ) -> str:
-        """Fetch the most recent log lines from a running Kubernetes pod.
-
-        CRITICAL: Use EXACTLY the pod_name the user specifies or that
-        list_kubernetes_pods returned. Never substitute a different pod name.
-
-        NOTE: Pods in ErrImageNeverPull, ImagePullBackOff, or Pending state
-        have NO container logs. Use get_kubernetes_pod_events for those instead.
-
-        SELF-HEALING ORCHESTRATION LOOP (only when user asks to 'analyze and fix'):
-        Step 1 — Call list_kubernetes_pods to confirm the pod exists and its status.
-        Step 2 — If pod status is ErrImageNeverPull / ImagePullBackOff / Pending:
-                 → call get_kubernetes_pod_events (not this tool) to find the cause.
-        Step 3 — If pod is Running/CrashLoopBackOff: call this tool for logs.
-        Step 4 — Identify root cause from logs:
-            * 'CrashLoopBackOff' → restart with restart_kubernetes_deployment.
-            * 'OOMKilled'        → report to user, suggest scaling replicas.
-            * DB/connection err  → report the dependency issue, do NOT restart.
-            * No obvious error   → show logs verbatim, ask user for guidance.
-        Step 5 — Confirm every action taken and its outcome to the user.
-
-        IMPORTANT: Never apply more than one fix at a time without reporting back first.
-
-        Args:
-            pod_name:   Exact pod name (e.g. 'backend-6497b8ff45-6pvgm').
-            namespace:  Kubernetes namespace (must be in the allowed list).
-            tail_lines: Number of log lines to retrieve (default 50, max 200).
-        """
-        return deployment_manager_service.get_pod_logs(
-            pod_name=pod_name,
-            namespace=namespace,
-            tail_lines=tail_lines,
-        )
-
-    @tool
-    def delete_kubernetes_pod(
-        name: str,
-        namespace: str,
-    ) -> dict[str, Any]:
-        """Delete/terminate a specific Kubernetes pod by name.
-
-        Use this when the user explicitly requests to delete, terminate, destroy,
-        kill, or remove a pod (e.g. 'delete pod api-abc-123 in team-a').
-        Deleting a pod managed by a Deployment will cause Kubernetes to automatically
-        replace it with a new pod.
-        """
-        return deployment_manager_service.delete_pod(
-            name=name,
-            namespace=namespace,
-        )
-
-    @tool
-    def get_kubernetes_pod_events(
-        pod_name: str,
-        namespace: str,
-    ) -> str:
-        """Fetch Kubernetes events for a pod (equivalent to 'kubectl describe pod').
-
-        USE THIS for pods that have NOT started (no container logs available):
-        - ErrImageNeverPull  → image cannot be pulled (wrong tag, private registry)
-        - ImagePullBackOff   → image pull is failing repeatedly
-        - Pending            → pod is stuck waiting for resources/scheduling
-        - OOMKilled          → pod was killed by kernel out-of-memory
-
-        Events show the real error message (e.g. image not found, quota exceeded).
-        Always call this BEFORE get_kubernetes_pod_logs for non-Running pods.
-
-        Args:
-            pod_name:  Exact pod name (e.g. 'backend-75bbccfb77-rzllv').
-            namespace: Kubernetes namespace (must be in the allowed list).
-        """
-        return deployment_manager_service.get_pod_events(
-            pod_name=pod_name,
-            namespace=namespace,
+        return _call_deployment_service(
+            lambda: deployment_manager_service.rollback_deployment(
+                name=name,
+                namespace=namespace,
+                revision=revision,
+            )
         )
 
     @tool
@@ -180,9 +134,11 @@ def create_deployment_manager_tools(
             name:      Deployment name (e.g. 'backend').
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return deployment_manager_service.pause_deployment(
-            name=name,
-            namespace=namespace,
+        return _call_deployment_service(
+            lambda: deployment_manager_service.pause_deployment(
+                name=name,
+                namespace=namespace,
+            )
         )
 
     @tool
@@ -202,35 +158,11 @@ def create_deployment_manager_tools(
             name:      Deployment name (e.g. 'backend').
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return deployment_manager_service.resume_deployment(
-            name=name,
-            namespace=namespace,
-        )
-
-    @tool
-    def diagnose_kubernetes_pod_status(
-        pod_name: str,
-        namespace: str,
-    ) -> dict[str, Any]:
-        """Deeply inspect a pod's container states when logs are unavailable.
-
-        USE THIS when:
-        - The pod has no logs (container never started)
-        - You need the exact Kubernetes 'reason' and 'message' from the
-          container state (e.g. 'CrashLoopBackOff', 'ImagePullBackOff',
-          'OOMKilled', 'Error', 'Completed')
-        - You want restart count and readiness state per container
-
-        Returns structured container-level state details that complement
-        get_kubernetes_pod_events. Use both together for full diagnosis.
-
-        Args:
-            pod_name:  Exact pod name (e.g. 'backend-75bbccfb77-rzllv').
-            namespace: Kubernetes namespace (must be in the allowed list).
-        """
-        return deployment_manager_service.diagnose_pod_status(
-            pod_name=pod_name,
-            namespace=namespace,
+        return _call_deployment_service(
+            lambda: deployment_manager_service.resume_deployment(
+                name=name,
+                namespace=namespace,
+            )
         )
 
     @tool
@@ -252,21 +184,23 @@ def create_deployment_manager_tools(
             service_name: Kubernetes Service name (e.g. 'backend', 'frontend').
             namespace:    Kubernetes namespace (must be in the allowed list).
         """
-        return deployment_manager_service.verify_service_selector(
-            service_name=service_name,
-            namespace=namespace,
+        return _call_deployment_service(
+            lambda: deployment_manager_service.verify_service_selector(
+                service_name=service_name,
+                namespace=namespace,
+            )
         )
 
-    return [
+    tools = [
         scale_kubernetes_deployment,
         restart_kubernetes_deployment,
         update_kubernetes_deployment_image,
         rollback_kubernetes_deployment,
-        get_kubernetes_pod_logs,
-        delete_kubernetes_pod,
-        get_kubernetes_pod_events,
         pause_kubernetes_deployment,
         resume_kubernetes_deployment,
-        diagnose_kubernetes_pod_status,
         verify_kubernetes_service_selector,
     ]
+    for deployment_tool in tools:
+        deployment_tool.handle_tool_error = _format_deployment_tool_error
+        deployment_tool.handle_validation_error = INVALID_DEPLOYMENT_TOOL_INPUT_MESSAGE
+    return tools

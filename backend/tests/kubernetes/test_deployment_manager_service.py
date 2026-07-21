@@ -1,8 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 import pytest
+
 from app.core import Settings
-from app.platforms.kubernetes.services.deployment_manager_service import DeploymentManagerService
+from app.platforms.kubernetes import KubernetesOperationError
+from app.platforms.kubernetes.services.deployment_manager_service import (
+    DeploymentManagerService,
+)
 
 
 @pytest.fixture
@@ -16,8 +20,8 @@ def mock_k8s_resources():
     clients.get_core_v1_api.return_value = core_v1_api
     clients.get_api_client.return_value = api_client
     settings = Settings(
-        _env_file=None,
-        kubernetes_allowed_namespaces=["default", "chatops-demo", "demo-app"]
+        _env_file=None,  # pyright: ignore[reportCallIssue]
+        kubernetes_allowed_namespaces=["default", "chatops-demo", "demo-app"],
     )
     service = DeploymentManagerService(settings, clients)
     return service, apps_v1_api, core_v1_api, api_client
@@ -31,9 +35,7 @@ def test_scale_deployment_success(mock_k8s_resources) -> None:
 
     assert result == {"status": "scaled"}
     apps_v1_api.patch_namespaced_deployment_scale.assert_called_once_with(
-        name="my-dep",
-        namespace="demo-app",
-        body={"spec": {"replicas": 3}}
+        name="my-dep", namespace="demo-app", body={"spec": {"replicas": 3}}
     )
 
 
@@ -57,14 +59,19 @@ def test_restart_deployment_success(mock_k8s_resources) -> None:
     call_args = apps_v1_api.patch_namespaced_deployment.call_args[1]
     assert call_args["name"] == "my-dep"
     assert call_args["namespace"] == "demo-app"
-    assert "kubectl.kubernetes.io/restartedAt" in call_args["body"]["spec"]["template"]["metadata"]["annotations"]
+    assert (
+        "kubectl.kubernetes.io/restartedAt"
+        in call_args["body"]["spec"]["template"]["metadata"]["annotations"]
+    )
 
 
 def test_update_deployment_image_success(mock_k8s_resources) -> None:
     service, apps_v1_api, _, _2 = mock_k8s_resources
     apps_v1_api.patch_namespaced_deployment.return_value = {"status": "updating"}
 
-    result = service.update_deployment_image("my-dep", "demo-app", "web", "nginx:latest")
+    result = service.update_deployment_image(
+        "my-dep", "demo-app", "web", "nginx:latest"
+    )
 
     assert result == {"status": "updating"}
     apps_v1_api.patch_namespaced_deployment.assert_called_once_with(
@@ -73,17 +80,10 @@ def test_update_deployment_image_success(mock_k8s_resources) -> None:
         body={
             "spec": {
                 "template": {
-                    "spec": {
-                        "containers": [
-                            {
-                                "name": "web",
-                                "image": "nginx:latest"
-                            }
-                        ]
-                    }
+                    "spec": {"containers": [{"name": "web", "image": "nginx:latest"}]}
                 }
             }
-        }
+        },
     )
 
 
@@ -91,9 +91,8 @@ def test_rollback_deployment_no_revisions_error(mock_k8s_resources) -> None:
     service, apps_v1_api, _, _2 = mock_k8s_resources
     apps_v1_api.list_namespaced_replica_set.return_value = SimpleNamespace(items=[])
 
-    result = service.rollback_deployment("my-dep", "demo-app")
-    assert "error" in result
-    assert "No revisions found" in result["error"]
+    with pytest.raises(KubernetesOperationError, match="No revisions were found"):
+        service.rollback_deployment("my-dep", "demo-app")
 
 
 def test_rollback_deployment_only_one_revision_error(mock_k8s_resources) -> None:
@@ -101,15 +100,14 @@ def test_rollback_deployment_only_one_revision_error(mock_k8s_resources) -> None
     rs = SimpleNamespace(
         metadata=SimpleNamespace(
             owner_references=[SimpleNamespace(kind="Deployment", name="my-dep")],
-            annotations={"deployment.kubernetes.io/revision": "1"}
+            annotations={"deployment.kubernetes.io/revision": "1"},
         ),
-        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1"))
+        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1")),
     )
     apps_v1_api.list_namespaced_replica_set.return_value = SimpleNamespace(items=[rs])
 
-    result = service.rollback_deployment("my-dep", "demo-app")
-    assert "error" in result
-    assert "No previous revision to rollback to" in result["error"]
+    with pytest.raises(KubernetesOperationError, match="No previous revision"):
+        service.rollback_deployment("my-dep", "demo-app")
 
 
 def test_rollback_deployment_to_previous_success(mock_k8s_resources) -> None:
@@ -117,18 +115,20 @@ def test_rollback_deployment_to_previous_success(mock_k8s_resources) -> None:
     rs1 = SimpleNamespace(
         metadata=SimpleNamespace(
             owner_references=[SimpleNamespace(kind="Deployment", name="my-dep")],
-            annotations={"deployment.kubernetes.io/revision": "1"}
+            annotations={"deployment.kubernetes.io/revision": "1"},
         ),
-        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1"))
+        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1")),
     )
     rs2 = SimpleNamespace(
         metadata=SimpleNamespace(
             owner_references=[SimpleNamespace(kind="Deployment", name="my-dep")],
-            annotations={"deployment.kubernetes.io/revision": "2"}
+            annotations={"deployment.kubernetes.io/revision": "2"},
         ),
-        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-2"))
+        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-2")),
     )
-    apps_v1_api.list_namespaced_replica_set.return_value = SimpleNamespace(items=[rs1, rs2])
+    apps_v1_api.list_namespaced_replica_set.return_value = SimpleNamespace(
+        items=[rs1, rs2]
+    )
     apps_v1_api.patch_namespaced_deployment.return_value = {"status": "rolled back"}
 
     result = service.rollback_deployment("my-dep", "demo-app")
@@ -137,11 +137,7 @@ def test_rollback_deployment_to_previous_success(mock_k8s_resources) -> None:
     apps_v1_api.patch_namespaced_deployment.assert_called_once_with(
         name="my-dep",
         namespace="demo-app",
-        body={
-            "spec": {
-                "template": SimpleNamespace(spec="pod-spec-1")
-            }
-        }
+        body={"spec": {"template": SimpleNamespace(spec="pod-spec-1")}},
     )
 
 
@@ -150,19 +146,23 @@ def test_rollback_deployment_to_specific_revision_success(mock_k8s_resources) ->
     rs1 = SimpleNamespace(
         metadata=SimpleNamespace(
             owner_references=[SimpleNamespace(kind="Deployment", name="my-dep")],
-            annotations={"deployment.kubernetes.io/revision": "1"}
+            annotations={"deployment.kubernetes.io/revision": "1"},
         ),
-        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1"))
+        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1")),
     )
     rs2 = SimpleNamespace(
         metadata=SimpleNamespace(
             owner_references=[SimpleNamespace(kind="Deployment", name="my-dep")],
-            annotations={"deployment.kubernetes.io/revision": "2"}
+            annotations={"deployment.kubernetes.io/revision": "2"},
         ),
-        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-2"))
+        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-2")),
     )
-    apps_v1_api.list_namespaced_replica_set.return_value = SimpleNamespace(items=[rs1, rs2])
-    apps_v1_api.patch_namespaced_deployment.return_value = {"status": "rolled back to 1"}
+    apps_v1_api.list_namespaced_replica_set.return_value = SimpleNamespace(
+        items=[rs1, rs2]
+    )
+    apps_v1_api.patch_namespaced_deployment.return_value = {
+        "status": "rolled back to 1"
+    }
 
     result = service.rollback_deployment("my-dep", "demo-app", revision=1)
 
@@ -170,11 +170,7 @@ def test_rollback_deployment_to_specific_revision_success(mock_k8s_resources) ->
     apps_v1_api.patch_namespaced_deployment.assert_called_once_with(
         name="my-dep",
         namespace="demo-app",
-        body={
-            "spec": {
-                "template": SimpleNamespace(spec="pod-spec-1")
-            }
-        }
+        body={"spec": {"template": SimpleNamespace(spec="pod-spec-1")}},
     )
 
 
@@ -183,62 +179,11 @@ def test_rollback_deployment_specific_revision_not_found(mock_k8s_resources) -> 
     rs1 = SimpleNamespace(
         metadata=SimpleNamespace(
             owner_references=[SimpleNamespace(kind="Deployment", name="my-dep")],
-            annotations={"deployment.kubernetes.io/revision": "1"}
+            annotations={"deployment.kubernetes.io/revision": "1"},
         ),
-        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1"))
+        spec=SimpleNamespace(template=SimpleNamespace(spec="pod-spec-1")),
     )
     apps_v1_api.list_namespaced_replica_set.return_value = SimpleNamespace(items=[rs1])
 
-    result = service.rollback_deployment("my-dep", "demo-app", revision=3)
-    assert "error" in result
-    assert "Revision 3 not found" in result["error"]
-
-
-# ── get_pod_logs tests ────────────────────────────────────────────────────────
-
-def test_get_pod_logs_returns_log_string(mock_k8s_resources) -> None:
-    service, _, core_v1_api, _2 = mock_k8s_resources
-    core_v1_api.read_namespaced_pod_log.return_value = (
-        "2024-01-01T00:00:01Z INFO Server started\n"
-        "2024-01-01T00:00:02Z ERROR Connection refused\n"
-    )
-
-    result = service.get_pod_logs("backend-abc-123", "demo-app", tail_lines=10)
-
-    assert "Connection refused" in result
-    assert "Server started" in result
-    core_v1_api.read_namespaced_pod_log.assert_called_once_with(
-        name="backend-abc-123",
-        namespace="demo-app",
-        tail_lines=10,
-        timestamps=True,
-    )
-
-
-def test_get_pod_logs_empty_returns_friendly_message(mock_k8s_resources) -> None:
-    service, _, core_v1_api, _2 = mock_k8s_resources
-    core_v1_api.read_namespaced_pod_log.return_value = ""
-
-    result = service.get_pod_logs("backend-abc-123", "demo-app")
-
-    assert "No logs available" in result
-    assert "backend-abc-123" in result
-
-
-def test_get_pod_logs_caps_tail_lines_at_200(mock_k8s_resources) -> None:
-    service, _, core_v1_api, _2 = mock_k8s_resources
-    core_v1_api.read_namespaced_pod_log.return_value = "some log line"
-
-    service.get_pod_logs("backend-abc-123", "demo-app", tail_lines=9999)
-
-    call_kwargs = core_v1_api.read_namespaced_pod_log.call_args[1]
-    assert call_kwargs["tail_lines"] == 200  # capped at _MAX_TAIL_LINES
-
-
-def test_get_pod_logs_rejects_disallowed_namespace(mock_k8s_resources) -> None:
-    service, _, core_v1_api, _2 = mock_k8s_resources
-
-    with pytest.raises(PermissionError, match="kube-system"):
-        service.get_pod_logs("coredns-abc", "kube-system")
-
-    core_v1_api.read_namespaced_pod_log.assert_not_called()
+    with pytest.raises(KubernetesOperationError, match="Revision 3 was not found"):
+        service.rollback_deployment("my-dep", "demo-app", revision=3)

@@ -54,9 +54,11 @@ class ChatModelFactory:
         model_options["max_retries"] = self._settings.model_max_retries
 
         if self._settings.model_api_key is not None:
-            model_options["api_key"] = (
-                self._settings.model_api_key.get_secret_value()
-            )
+            model_options["api_key"] = self._settings.model_api_key.get_secret_value()
+
+        if provider.casefold() == "groq" and model_name.casefold().startswith("qwen/"):
+            model_options["reasoning_effort"] = "none"
+            model_options["reasoning_format"] = "hidden"
 
         self._model = cast(
             BaseChatModel,

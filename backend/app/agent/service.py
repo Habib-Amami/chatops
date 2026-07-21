@@ -8,8 +8,20 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from pydantic import BaseModel
 
+from app.agent.middleware import get_model_limit_message
+
+
 class AgentInvocationError(RuntimeError):
-    """Raised when an agent run does not produce a usable assistant response."""
+    """Raised when an agent run cannot produce a usable assistant response."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        public_message: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.public_message = public_message
 
 
 class AgentResponse(BaseModel):
@@ -49,7 +61,10 @@ class AgentService:
             raise ValueError("request_id must not be empty")
 
         config: RunnableConfig = {
-            "configurable": {"thread_id": thread_id},
+            "configurable": {
+                "thread_id": thread_id,
+                "request_id": request_id,
+            },
             "tags": ["chatops"],
             "metadata": {
                 "thread_id": thread_id,
@@ -73,19 +88,22 @@ class AgentService:
                 timeout=self._timeout_seconds,
             )
         except TimeoutError as error:
-            raise AgentInvocationError("Agent invocation timed out") from error
-        except Exception as exc:
-            # Catch Groq rate-limit (429), request-too-large (413), bad-request (400),
-            # and any other LLM/graph error so it never crashes the ASGI layer.
             raise AgentInvocationError(
-                f"LLM invocation failed: {type(exc).__name__}: {exc}"
+                "Agent invocation timed out",
+                public_message=(
+                    "The agent took too long to complete the request. Please try again."
+                ),
+            ) from error
+        except Exception as exc:
+            public_message = get_model_limit_message(exc)
+            raise AgentInvocationError(
+                "Agent graph invocation failed",
+                public_message=public_message,
             ) from exc
 
         messages = result.get("messages") if isinstance(result, dict) else None
         if not messages or not isinstance(messages[-1], AIMessage):
-            raise AgentInvocationError(
-                "Agent did not return a final assistant message"
-            )
+            raise AgentInvocationError("Agent did not return a final assistant message")
 
         content = messages[-1].text.strip()
         if not content:

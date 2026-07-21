@@ -41,6 +41,25 @@ class Settings(BaseSettings):
     kubernetes_allowed_namespaces: list[str] = Field(
         default_factory=lambda: ["default", "chatops-demo"]
     )
+    kubernetes_default_pod_registry: str = "docker.io"
+    kubernetes_allowed_pod_registries: list[str] = Field(
+        default_factory=lambda: ["docker.io", "ghcr.io", "quay.io"]
+    )
+    kubernetes_registry_check_timeout_seconds: float = Field(
+        default=5.0,
+        gt=0,
+        le=30,
+    )
+    kubernetes_pod_verification_timeout_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        le=120,
+    )
+    kubernetes_pod_verification_poll_seconds: float = Field(
+        default=1.0,
+        gt=0,
+        le=10,
+    )
     allow_real_kubernetes: bool = False
 
     s3_allowed_buckets: list[str] = Field(
@@ -66,15 +85,37 @@ class Settings(BaseSettings):
         if self.aws_target == "aws" and not self.allow_real_aws:
             raise ValueError("ALLOW_REAL_AWS must be true when AWS_TARGET=aws")
 
-        if self.kubernetes_target == "minikube" and self.kubernetes_context != "minikube":
-            raise ValueError("KUBERNETES_CONTEXT must be minikube for the Minikube target")
+        if (
+            self.kubernetes_target == "minikube"
+            and self.kubernetes_context != "minikube"
+        ):
+            raise ValueError(
+                "KUBERNETES_CONTEXT must be minikube for the Minikube target"
+            )
         if self.kubernetes_target == "kubernetes" and not self.allow_real_kubernetes:
             raise ValueError(
-                "ALLOW_REAL_KUBERNETES must be true when "
-                "KUBERNETES_TARGET=kubernetes"
+                "ALLOW_REAL_KUBERNETES must be true when KUBERNETES_TARGET=kubernetes"
             )
         if not self.kubernetes_allowed_namespaces:
             raise ValueError("At least one Kubernetes namespace must be allowed")
+        if not self.kubernetes_allowed_pod_registries:
+            raise ValueError("At least one container registry must be allowed")
+        if (
+            self.kubernetes_pod_verification_poll_seconds
+            > self.kubernetes_pod_verification_timeout_seconds
+        ):
+            raise ValueError(
+                "KUBERNETES_POD_VERIFICATION_POLL_SECONDS cannot exceed "
+                "KUBERNETES_POD_VERIFICATION_TIMEOUT_SECONDS"
+            )
+        if (
+            self.kubernetes_default_pod_registry
+            not in self.kubernetes_allowed_pod_registries
+        ):
+            raise ValueError(
+                "KUBERNETES_DEFAULT_POD_REGISTRY must be present in "
+                "KUBERNETES_ALLOWED_POD_REGISTRIES"
+            )
 
         return self
 
@@ -83,4 +124,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return one settings instance for the application process."""
     return Settings()
-# Ce fichier est déjà complet — on va juste modifier la classe Settings
