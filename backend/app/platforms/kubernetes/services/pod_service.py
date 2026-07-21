@@ -1,86 +1,76 @@
-"""Read-only Kubernetes Pod operations."""
+"""Namespace-scoped Kubernetes Pod operations."""
 
 from typing import cast
 
 from kubernetes import client as kubernetes_client
-from pydantic import BaseModel
+from urllib3.response import HTTPResponse
 
 from app.core import Settings
 from app.platforms.kubernetes import (
     KubernetesClientFactory,
+    KubernetesResourceNotFoundError,
+    execute_kubernetes_api_call,
     validate_kubernetes_namespace,
+    validate_kubernetes_pod_name,
 )
+from app.platforms.kubernetes.models import (
+    PodCreateResult,
+    PodDeleteResult,
+    PodDetails,
+    PodEventSummary,
+    PodStatusDiagnosis,
+    PodSummary,
+)
+from app.platforms.kubernetes.mappers import (
+    build_pod_details,
+    build_pod_events,
+    build_pod_status_diagnosis,
+    build_pod_summary,
+)
+from app.platforms.kubernetes.registry import ContainerRegistryClient
+from app.platforms.kubernetes.verification import PodMutationVerifier
 
-
-class PodSummary(BaseModel):
-    """Small, agent-safe representation of a Kubernetes Pod."""
-
-    name: str
-    namespace: str
-    phase: str | None
-    ready: bool
-    restart_count: int
-    node_name: str | None
-    pod_ip: str | None
-    images: list[str]
-
-
-class PodContainerSummary(BaseModel):
-    """Small, agent-safe representation of one Pod container."""
-
-    name: str
-    image: str | None
-    ready: bool
-    restart_count: int
-
-
-class PodConditionSummary(BaseModel):
-    """Small, agent-safe representation of one Pod condition."""
-
-    type: str
-    status: str | None
-    reason: str | None
-    message: str | None
-
-
-class PodDetails(PodSummary):
-    """Detailed, read-only Pod information for diagnosis."""
-
-    labels: dict[str, str]
-    created_at: str | None
-    containers: list[PodContainerSummary]
-    conditions: list[PodConditionSummary]
-
-
-class PodEventSummary(BaseModel):
-    """Small, agent-safe representation of one Kubernetes event."""
-
-    type: str | None
-    reason: str | None
-    message: str | None
-    count: int | None
-    first_timestamp: str | None
-    last_timestamp: str | None
+DEFAULT_LOG_TAIL_LINES = 50
+DEFAULT_POD_IMAGE = "nginxinc/nginx-unprivileged:alpine"
+MAX_LOG_TAIL_LINES = 200
+POD_CPU_REQUEST = "50m"
+POD_CPU_LIMIT = "250m"
+POD_MEMORY_REQUEST = "64Mi"
+POD_MEMORY_LIMIT = "256Mi"
 
 
 class PodService:
-    """Provide namespace-scoped, read-only Pod operations."""
+    """Provide namespace-scoped Pod inspection and approved mutations."""
 
     def __init__(
         self,
         settings: Settings,
         clients: KubernetesClientFactory,
+        registry_client: ContainerRegistryClient | None = None,
+        mutation_verifier: PodMutationVerifier | None = None,
     ) -> None:
-        self._allowed_namespaces = frozenset(
-            settings.kubernetes_allowed_namespaces
-        )
+        self._allowed_namespaces = frozenset(settings.kubernetes_allowed_namespaces)
         self._core_v1_api = clients.get_core_v1_api()
+        self._registry_client = registry_client or ContainerRegistryClient(
+            allowed_registries=settings.kubernetes_allowed_pod_registries,
+            default_registry=settings.kubernetes_default_pod_registry,
+            timeout_seconds=settings.kubernetes_registry_check_timeout_seconds,
+        )
+        self._mutation_verifier = mutation_verifier or PodMutationVerifier(
+            self._core_v1_api,
+            timeout_seconds=settings.kubernetes_pod_verification_timeout_seconds,
+            poll_seconds=settings.kubernetes_pod_verification_poll_seconds,
+        )
 
     def get_pods(self, namespace: str) -> list[PodSummary]:
         """Get Pod health information in one explicitly allowed namespace."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
 
-        raw_response = self._core_v1_api.list_namespaced_pod(namespace=namespace)
+        raw_response = execute_kubernetes_api_call(
+            operation="list Pods",
+            resource=f"namespace {namespace!r}",
+            call=lambda: self._core_v1_api.list_namespaced_pod(namespace=namespace),
+        )
         if raw_response is None:
             return []
 
@@ -88,7 +78,7 @@ class PodService:
         pods: list[PodSummary] = []
 
         for pod in response.items or []:
-            summary = self._build_pod_summary(pod, namespace)
+            summary = build_pod_summary(pod, namespace)
             if summary is None:
                 continue
             pods.append(summary)
@@ -98,63 +88,28 @@ class PodService:
     def get_pod(self, namespace: str, pod_name: str) -> PodDetails:
         """Get detailed read-only information for one Pod."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+        validate_kubernetes_pod_name(pod_name)
 
-        raw_pod = self._core_v1_api.read_namespaced_pod(
-            name=pod_name,
-            namespace=namespace,
+        raw_pod = execute_kubernetes_api_call(
+            operation="get Pod",
+            resource=f"{namespace}/{pod_name}",
+            call=lambda: self._core_v1_api.read_namespaced_pod(
+                name=pod_name,
+                namespace=namespace,
+            ),
         )
         if raw_pod is None:
-            raise LookupError(f"Pod {pod_name!r} was not found")
+            raise KubernetesResourceNotFoundError(
+                f"Pod {namespace}/{pod_name} was not found"
+            )
 
         pod = cast(kubernetes_client.V1Pod, raw_pod)
-        summary = self._build_pod_summary(pod, namespace)
-        if summary is None:
-            raise LookupError(f"Pod {pod_name!r} was not found")
-
-        metadata = pod.metadata
-        spec = pod.spec
-        status = pod.status
-        container_statuses = (
-            status.container_statuses
-            if status is not None and status.container_statuses is not None
-            else []
-        )
-        conditions = (
-            status.conditions
-            if status is not None and status.conditions is not None
-            else []
-        )
-
-        return PodDetails(
-            **summary.model_dump(),
-            labels=dict(metadata.labels or {}) if metadata is not None else {},
-            created_at=(
-                metadata.creation_timestamp.isoformat()
-                if metadata is not None
-                and metadata.creation_timestamp is not None
-                else None
-            ),
-            containers=[
-                PodContainerSummary(
-                    name=container_status.name,
-                    image=container_status.image,
-                    ready=container_status.ready is True,
-                    restart_count=container_status.restart_count or 0,
-                )
-                for container_status in container_statuses
-                if container_status.name is not None
-            ],
-            conditions=[
-                PodConditionSummary(
-                    type=condition.type,
-                    status=condition.status,
-                    reason=condition.reason,
-                    message=condition.message,
-                )
-                for condition in conditions
-                if condition.type is not None
-            ],
-        )
+        details = build_pod_details(pod, namespace)
+        if details is None:
+            raise KubernetesResourceNotFoundError(
+                f"Pod {namespace}/{pod_name} was not found"
+            )
+        return details
 
     def get_pod_logs(
         self,
@@ -162,98 +117,185 @@ class PodService:
         pod_name: str,
         *,
         container: str | None = None,
-        tail_lines: int = 100,
+        tail_lines: int = DEFAULT_LOG_TAIL_LINES,
+        previous: bool = False,
+        since_seconds: int | None = None,
     ) -> str:
-        """Get recent logs for one Pod, limited to a safe tail size."""
+        """Get bounded, decoded current or previous logs for one container."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+        validate_kubernetes_pod_name(pod_name)
 
-        safe_tail_lines = min(max(tail_lines, 1), 500)
-        logs = self._core_v1_api.read_namespaced_pod_log(
-            name=pod_name,
-            namespace=namespace,
-            container=container,
-            tail_lines=safe_tail_lines,
-            timestamps=True,
+        safe_tail_lines = min(max(tail_lines, 1), MAX_LOG_TAIL_LINES)
+        safe_since_seconds = (
+            min(max(since_seconds, 1), 86_400) if since_seconds is not None else None
         )
-        return str(logs or "")
+        logs = execute_kubernetes_api_call(
+            operation="get previous Pod logs" if previous else "get Pod logs",
+            resource=f"{namespace}/{pod_name}",
+            call=lambda: self._core_v1_api.read_namespaced_pod_log(
+                name=pod_name,
+                namespace=namespace,
+                container=container,
+                tail_lines=safe_tail_lines,
+                timestamps=True,
+                previous=previous,
+                since_seconds=safe_since_seconds,
+                _preload_content=False,
+            ),
+        )
+        if isinstance(logs, HTTPResponse):
+            try:
+                return logs.data.decode("utf-8", errors="replace")
+            finally:
+                logs.release_conn()
+        if isinstance(logs, (bytes, bytearray)):
+            text = bytes(logs).decode("utf-8", errors="replace")
+        else:
+            text = str(logs or "")
+        return text
 
     def get_pod_events(
         self,
         namespace: str,
         pod_name: str,
+        *,
+        limit: int = 20,
     ) -> list[PodEventSummary]:
-        """Get Kubernetes events related to one Pod."""
+        """Get a bounded, newest-first list of events related to one Pod."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+        validate_kubernetes_pod_name(pod_name)
 
-        raw_response = self._core_v1_api.list_namespaced_event(
-            namespace=namespace,
-            field_selector=f"involvedObject.name={pod_name},involvedObject.kind=Pod",
+        safe_limit = min(max(limit, 1), 100)
+        raw_response = execute_kubernetes_api_call(
+            operation="list Pod events",
+            resource=f"{namespace}/{pod_name}",
+            call=lambda: self._core_v1_api.list_namespaced_event(
+                namespace=namespace,
+                field_selector=(
+                    f"involvedObject.name={pod_name},involvedObject.kind=Pod"
+                ),
+                limit=safe_limit,
+            ),
         )
         if raw_response is None:
             return []
 
         response = cast(kubernetes_client.CoreV1EventList, raw_response)
-        return [
-            PodEventSummary(
-                type=event.type,
-                reason=event.reason,
-                message=event.message,
-                count=event.count,
-                first_timestamp=(
-                    event.first_timestamp.isoformat()
-                    if event.first_timestamp is not None
-                    else None
-                ),
-                last_timestamp=(
-                    event.last_timestamp.isoformat()
-                    if event.last_timestamp is not None
-                    else None
-                ),
-            )
-            for event in response.items or []
-        ]
+        return build_pod_events(response.items or [], safe_limit)
 
-    def _build_pod_summary(
+    def diagnose_pod_status(
         self,
-        pod: kubernetes_client.V1Pod,
         namespace: str,
-    ) -> PodSummary | None:
-        """Build the shared compact Pod summary shape."""
-        metadata = pod.metadata
-        if metadata is None or metadata.name is None:
-            return None
+        pod_name: str,
+    ) -> PodStatusDiagnosis:
+        """Get current container states for a Pod that may not have logs."""
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+        validate_kubernetes_pod_name(pod_name)
 
-        spec = pod.spec
-        status = pod.status
-        containers = (
-            spec.containers
-            if spec is not None and spec.containers is not None
-            else []
+        raw_pod = execute_kubernetes_api_call(
+            operation="get Pod status",
+            resource=f"{namespace}/{pod_name}",
+            call=lambda: self._core_v1_api.read_namespaced_pod_status(
+                name=pod_name,
+                namespace=namespace,
+            ),
         )
-        container_statuses = (
-            status.container_statuses
-            if status is not None and status.container_statuses is not None
-            else []
+        if raw_pod is None:
+            raise KubernetesResourceNotFoundError(
+                f"Pod {namespace}/{pod_name} was not found"
+            )
+
+        pod = cast(kubernetes_client.V1Pod, raw_pod)
+        return build_pod_status_diagnosis(pod, namespace, pod_name)
+
+    def delete_pod(
+        self,
+        namespace: str,
+        pod_name: str,
+    ) -> PodDeleteResult:
+        """Request deletion of one Pod in an explicitly allowed namespace."""
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+        validate_kubernetes_pod_name(pod_name)
+
+        execute_kubernetes_api_call(
+            operation="delete Pod",
+            resource=f"{namespace}/{pod_name}",
+            call=lambda: self._core_v1_api.delete_namespaced_pod(
+                name=pod_name,
+                namespace=namespace,
+            ),
+        )
+        return self._mutation_verifier.verify_deletion(
+            namespace=namespace,
+            pod_name=pod_name,
         )
 
-        return PodSummary(
-            name=metadata.name,
-            namespace=metadata.namespace or namespace,
-            phase=status.phase if status is not None else None,
-            ready=bool(container_statuses)
-            and all(
-                container_status.ready is True
-                for container_status in container_statuses
+    def create_pod(
+        self,
+        namespace: str,
+        pod_name: str,
+        image: str,
+        registry: str | None = None,
+    ) -> PodCreateResult:
+        """Verify and create one standalone Pod without a workload controller."""
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+        validate_kubernetes_pod_name(pod_name)
+        image_reference = self._registry_client.resolve(image, registry)
+        self._registry_client.verify_exists(image_reference)
+
+        pod = kubernetes_client.V1Pod(
+            api_version="v1",
+            kind="Pod",
+            metadata=kubernetes_client.V1ObjectMeta(
+                name=pod_name,
+                labels={
+                    "app.kubernetes.io/managed-by": "chatops",
+                    "chatops-purpose": "standalone-test",
+                },
             ),
-            restart_count=sum(
-                container_status.restart_count or 0
-                for container_status in container_statuses
+            spec=kubernetes_client.V1PodSpec(
+                automount_service_account_token=False,
+                containers=[
+                    kubernetes_client.V1Container(
+                        name="main",
+                        image=image_reference.pull_reference,
+                        image_pull_policy="IfNotPresent",
+                        resources=kubernetes_client.V1ResourceRequirements(
+                            requests={
+                                "cpu": POD_CPU_REQUEST,
+                                "memory": POD_MEMORY_REQUEST,
+                            },
+                            limits={
+                                "cpu": POD_CPU_LIMIT,
+                                "memory": POD_MEMORY_LIMIT,
+                            },
+                        ),
+                        security_context=kubernetes_client.V1SecurityContext(
+                            allow_privilege_escalation=False,
+                            capabilities=kubernetes_client.V1Capabilities(drop=["ALL"]),
+                        ),
+                    )
+                ],
+                restart_policy="Never",
+                security_context=kubernetes_client.V1PodSecurityContext(
+                    seccomp_profile=kubernetes_client.V1SeccompProfile(
+                        type="RuntimeDefault"
+                    )
+                ),
+                termination_grace_period_seconds=5,
             ),
-            node_name=spec.node_name if spec is not None else None,
-            pod_ip=status.pod_ip if status is not None else None,
-            images=[
-                container.image
-                for container in containers
-                if container.image is not None
-            ],
+        )
+        execute_kubernetes_api_call(
+            operation="create Pod",
+            resource=f"{namespace}/{pod_name}",
+            call=lambda: self._core_v1_api.create_namespaced_pod(
+                namespace=namespace,
+                body=pod,
+            ),
+        )
+        return self._mutation_verifier.verify_creation(
+            namespace=namespace,
+            pod_name=pod_name,
+            image=image_reference.pull_reference,
+            registry=image_reference.registry,
         )
