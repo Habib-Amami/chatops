@@ -3,26 +3,10 @@
 from datetime import datetime, timezone
 
 from botocore.client import BaseClient
-from pydantic import BaseModel
 
 from app.core import Settings
 from app.platforms.aws import AWSClientFactory
-
-
-class BucketSummary(BaseModel):
-    """Small, agent-safe representation of an S3 Bucket."""
-
-    name: str
-    creation_date: str | None
-
-
-class ObjectSummary(BaseModel):
-    """Small, agent-safe representation of an S3 Object."""
-
-    key: str
-    size: int
-    last_modified: str | None
-    bucket: str
+from app.platforms.aws.models import BucketSummary, ObjectSummary
 
 
 class S3Service:
@@ -57,18 +41,14 @@ class S3Service:
         if bucket not in self._allowed_buckets:
             raise PermissionError(f"Bucket {bucket!r} is not allowed")
 
-        response = self._s3_client.list_objects_v2(
-            Bucket=bucket, Prefix=prefix
-        )
+        response = self._s3_client.list_objects_v2(Bucket=bucket, Prefix=prefix)
         objects = response.get("Contents", []) or []
         return [
             ObjectSummary(
                 key=obj["Key"],
                 size=obj.get("Size", 0),
                 last_modified=(
-                    obj["LastModified"].isoformat()
-                    if obj.get("LastModified")
-                    else None
+                    obj["LastModified"].isoformat() if obj.get("LastModified") else None
                 ),
                 bucket=bucket,
             )
@@ -100,9 +80,7 @@ class S3Service:
         response = self._s3_client.get_object(Bucket=bucket, Key=key)
         return response["Body"].read().decode("utf-8")
 
-    def save_audit_log(
-        self, action: str, target: str, result: str
-    ) -> ObjectSummary:
+    def save_audit_log(self, action: str, target: str, result: str) -> ObjectSummary:
         """Save a ChatOps audit entry to the opstasks-logs bucket."""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         key = f"chatops/audit/{timestamp}_{action}_{target}.json"
