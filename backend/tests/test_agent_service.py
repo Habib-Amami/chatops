@@ -37,7 +37,10 @@ def test_agent_service_invokes_graph_with_run_metadata() -> None:
             ]
         },
         config={
-            "configurable": {"thread_id": "thread-1"},
+            "configurable": {
+                "thread_id": "thread-1",
+                "request_id": "request-1",
+            },
             "tags": ["chatops"],
             "metadata": {
                 "thread_id": "thread-1",
@@ -83,10 +86,12 @@ def test_agent_service_rejects_missing_final_assistant_message() -> None:
 
 def test_agent_service_converts_graph_errors_to_invocation_errors() -> None:
     agent = MagicMock()
-    agent.ainvoke = AsyncMock(side_effect=RuntimeError("rate limited"))
+    agent.ainvoke = AsyncMock(
+        side_effect=RuntimeError("provider secret: upstream request failed")
+    )
     service = AgentService(agent)
 
-    with pytest.raises(AgentInvocationError, match="failed"):
+    with pytest.raises(AgentInvocationError, match="failed") as raised:
         asyncio.run(
             service.invoke(
                 message="hello",
@@ -94,6 +99,31 @@ def test_agent_service_converts_graph_errors_to_invocation_errors() -> None:
                 request_id="request-1",
             )
         )
+
+    assert raised.value.public_message is None
+    assert "provider secret" not in str(raised.value)
+
+
+def test_agent_service_preserves_safe_model_limit_message() -> None:
+    class RateLimitError(Exception):
+        status_code = 429
+
+    agent = MagicMock()
+    agent.ainvoke = AsyncMock(side_effect=RateLimitError("sensitive provider body"))
+    service = AgentService(agent)
+
+    with pytest.raises(AgentInvocationError) as raised:
+        asyncio.run(
+            service.invoke(
+                message="hello",
+                thread_id="thread-1",
+                request_id="request-1",
+            )
+        )
+
+    assert raised.value.public_message is not None
+    assert "quota" in raised.value.public_message
+    assert "sensitive provider body" not in raised.value.public_message
 
 
 def test_agent_service_times_out_slow_graph_invocation() -> None:

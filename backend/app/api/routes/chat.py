@@ -12,8 +12,11 @@ from app.api.schemas import ChatRequest, ChatResponse
 
 logger = logging.getLogger(__name__)
 
+GENERIC_AGENT_ERROR_MESSAGE = (
+    "The agent could not complete the request. Please try again."
+)
+
 router = APIRouter(tags=["chat"])
-logger = logging.getLogger(__name__)
 
 
 @router.post("/chat", response_model=ChatResponse)
@@ -43,21 +46,9 @@ async def chat(
             },
             exc_info=True,
         )
-        error_str = str(error)
-        if "rate_limit" in error_str or "429" in error_str:
-            msg = (
-                "⚠️ The AI model is temporarily rate-limited. "
-                "Please wait a moment and try again."
-            )
-        elif "413" in error_str or "too large" in error_str.lower():
-            msg = (
-                "⚠️ Your request is too long for the current model. "
-                "Please start a new chat session and try a shorter command."
-            )
-        else:
-            msg = f"⚠️ The agent encountered an error: {error}"
+        msg = error.public_message or GENERIC_AGENT_ERROR_MESSAGE
         return ChatResponse(
             content=msg,
-            thread_id=str(thread_id),
-            request_id=str(request_id),
+            thread_id=thread_id,
+            request_id=request_id,
         )

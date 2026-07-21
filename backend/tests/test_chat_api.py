@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from app.agent import AgentResponse
+from app.agent import AgentInvocationError, AgentResponse
 from app.api.dependencies import get_agent_service
 from app.main import app
 
@@ -114,3 +114,64 @@ async def test_chat_endpoint_rejects_whitespace_only_message() -> None:
 
     assert response.status_code == 422
     agent_service.invoke.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_chat_endpoint_does_not_expose_internal_agent_errors() -> None:
+    agent_service = MagicMock()
+    agent_service.invoke = AsyncMock(
+        side_effect=AgentInvocationError(
+            "provider request failed with secret-token-value"
+        )
+    )
+
+    async def override_agent_service() -> MagicMock:
+        return agent_service
+
+    app.dependency_overrides[get_agent_service] = override_agent_service
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat",
+                json={"message": "List pods"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["content"] == (
+        "The agent could not complete the request. Please try again."
+    )
+    assert "secret-token-value" not in response.text
+
+
+@pytest.mark.anyio
+async def test_chat_endpoint_returns_only_explicit_safe_error_message() -> None:
+    agent_service = MagicMock()
+    agent_service.invoke = AsyncMock(
+        side_effect=AgentInvocationError(
+            "internal timeout details",
+            public_message="The agent took too long. Please try again.",
+        )
+    )
+
+    async def override_agent_service() -> MagicMock:
+        return agent_service
+
+    app.dependency_overrides[get_agent_service] = override_agent_service
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat",
+                json={"message": "List pods"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["content"] == ("The agent took too long. Please try again.")
+    assert "internal timeout details" not in response.text
