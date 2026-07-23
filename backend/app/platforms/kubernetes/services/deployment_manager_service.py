@@ -82,8 +82,7 @@ class DeploymentManagerService:
                             "reason": c.reason,
                             "message": c.message,
                         }
-                        for c in (status.conditions or [])
-                        if status
+                        for c in (status.conditions or [] if status else [])
                     ],
                 }
             )
@@ -167,8 +166,7 @@ class DeploymentManagerService:
                         c.last_update_time.isoformat() if c.last_update_time else None
                     ),
                 }
-                for c in (status.conditions or [])
-                if status
+                for c in (status.conditions or [] if status else [])
             ],
         }
 
@@ -243,8 +241,7 @@ class DeploymentManagerService:
                     "reason": c.reason,
                     "message": c.message,
                 }
-                for c in (status.conditions or [])
-                if status
+                for c in (status.conditions or [] if status else [])
             ],
         }
 
