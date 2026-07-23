@@ -9,6 +9,7 @@ from app.core import Settings
 from app.platforms.kubernetes import (
     KubernetesClientFactory,
     KubernetesOperationError,
+    KubernetesResourceNotFoundError,
     execute_kubernetes_api_call,
     validate_kubernetes_namespace,
 )
@@ -26,6 +27,481 @@ class DeploymentManagerService:
         self._apps_v1_api = clients.get_apps_v1_api()
         self._core_v1_api = clients.get_core_v1_api()
         self._api_client = clients.get_api_client()
+
+    # ------------------------------------------------------------------
+    # Read / Inspection Methods
+    # ------------------------------------------------------------------
+
+    def list_deployments(self, namespace: str) -> list[dict[str, Any]]:
+        """List all Deployments in an allowed namespace.
+
+        Returns a condensed list of each deployment's name, namespace,
+        desired/ready/available replica counts, and current conditions.
+
+        Args:
+            namespace: Kubernetes namespace (must be in the allowed list).
+
+        Raises:
+            PermissionError: If *namespace* is not in the allowed list.
+            KubernetesOperationError: If the API call fails.
+        """
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+
+        raw_response = cast(
+            kubernetes_client.V1DeploymentList,
+            execute_kubernetes_api_call(
+                operation="list Deployments",
+                resource=f"namespace {namespace!r}",
+                call=lambda: self._apps_v1_api.list_namespaced_deployment(
+                    namespace=namespace
+                ),
+            ),
+        )
+
+        result: list[dict[str, Any]] = []
+        for dep in raw_response.items or []:
+            meta = dep.metadata
+            spec = dep.spec
+            status = dep.status
+            if meta is None:
+                continue
+            result.append(
+                {
+                    "name": meta.name,
+                    "namespace": meta.namespace or namespace,
+                    "labels": meta.labels or {},
+                    "desired_replicas": spec.replicas if spec else None,
+                    "ready_replicas": status.ready_replicas if status else None,
+                    "available_replicas": status.available_replicas if status else None,
+                    "updated_replicas": status.updated_replicas if status else None,
+                    "paused": bool(spec.paused) if spec else False,
+                    "conditions": [
+                        {
+                            "type": c.type,
+                            "status": c.status,
+                            "reason": c.reason,
+                            "message": c.message,
+                        }
+                        for c in (status.conditions or [])
+                        if status
+                    ],
+                }
+            )
+        return result
+
+    def get_deployment(
+        self,
+        name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Get detailed information for a single named Deployment.
+
+        Returns a structured dictionary including metadata, replica counts,
+        container image(s), and current rollout conditions.
+
+        Args:
+            name:      Deployment name (e.g. 'backend').
+            namespace: Kubernetes namespace (must be in the allowed list).
+
+        Raises:
+            PermissionError: If *namespace* is not in the allowed list.
+            KubernetesResourceNotFoundError: If the Deployment does not exist.
+            KubernetesOperationError: If the API call fails.
+        """
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+
+        raw = cast(
+            kubernetes_client.V1Deployment,
+            execute_kubernetes_api_call(
+                operation="read Deployment",
+                resource=f"{namespace}/{name}",
+                call=lambda: self._apps_v1_api.read_namespaced_deployment(
+                    name=name,
+                    namespace=namespace,
+                ),
+            ),
+        )
+        if raw is None:
+            raise KubernetesResourceNotFoundError(
+                f"Deployment {namespace}/{name} was not found"
+            )
+
+        meta = raw.metadata
+        spec = raw.spec
+        status = raw.status
+        containers = []
+        if spec and spec.template and spec.template.spec:
+            for c in spec.template.spec.containers or []:
+                containers.append(
+                    {
+                        "name": c.name,
+                        "image": c.image,
+                        "ports": [
+                            p.container_port for p in (c.ports or [])
+                        ],
+                    }
+                )
+
+        return {
+            "name": meta.name if meta else name,
+            "namespace": (meta.namespace if meta else None) or namespace,
+            "labels": meta.labels if meta else {},
+            "annotations": meta.annotations if meta else {},
+            "creation_timestamp": (
+                meta.creation_timestamp.isoformat()
+                if meta and meta.creation_timestamp
+                else None
+            ),
+            "desired_replicas": spec.replicas if spec else None,
+            "ready_replicas": status.ready_replicas if status else None,
+            "available_replicas": status.available_replicas if status else None,
+            "updated_replicas": status.updated_replicas if status else None,
+            "paused": bool(spec.paused) if spec else False,
+            "strategy": (
+                spec.strategy.type if spec and spec.strategy else None
+            ),
+            "containers": containers,
+            "conditions": [
+                {
+                    "type": c.type,
+                    "status": c.status,
+                    "reason": c.reason,
+                    "message": c.message,
+                    "last_update": (
+                        c.last_update_time.isoformat()
+                        if c.last_update_time
+                        else None
+                    ),
+                }
+                for c in (status.conditions or [])
+                if status
+            ],
+        }
+
+    def get_deployment_status(
+        self,
+        name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Get a focused rollout health snapshot for a single Deployment.
+
+        Returns replica counts, readiness, and rollout conditions without
+        returning the full Deployment spec. Useful for monitoring whether
+        a rollout has completed or is stalled.
+
+        Args:
+            name:      Deployment name.
+            namespace: Kubernetes namespace (must be in the allowed list).
+
+        Raises:
+            PermissionError: If *namespace* is not in the allowed list.
+            KubernetesResourceNotFoundError: If the Deployment does not exist.
+            KubernetesOperationError: If the API call fails.
+        """
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+
+        raw = cast(
+            kubernetes_client.V1Deployment,
+            execute_kubernetes_api_call(
+                operation="read Deployment status",
+                resource=f"{namespace}/{name}",
+                call=lambda: self._apps_v1_api.read_namespaced_deployment_status(
+                    name=name,
+                    namespace=namespace,
+                ),
+            ),
+        )
+        if raw is None:
+            raise KubernetesResourceNotFoundError(
+                f"Deployment {namespace}/{name} was not found"
+            )
+
+        spec = raw.spec
+        status = raw.status
+        desired = spec.replicas if spec else None
+        ready = status.ready_replicas if status else None
+        available = status.available_replicas if status else None
+        updated = status.updated_replicas if status else None
+
+        # Determine a human-readable rollout state
+        if desired is not None and ready == desired and updated == desired:
+            rollout_state = "complete"
+        elif updated is not None and desired is not None and updated < desired:
+            rollout_state = "in_progress"
+        elif ready is not None and desired is not None and ready < desired:
+            rollout_state = "degraded"
+        else:
+            rollout_state = "unknown"
+
+        return {
+            "name": name,
+            "namespace": namespace,
+            "rollout_state": rollout_state,
+            "desired_replicas": desired,
+            "ready_replicas": ready,
+            "available_replicas": available,
+            "updated_replicas": updated,
+            "paused": bool(spec.paused) if spec else False,
+            "conditions": [
+                {
+                    "type": c.type,
+                    "status": c.status,
+                    "reason": c.reason,
+                    "message": c.message,
+                }
+                for c in (status.conditions or [])
+                if status
+            ],
+        }
+
+    def get_deployment_history(
+        self,
+        name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Get the rollout revision history for a single Deployment.
+
+        Queries all ReplicaSets owned by the Deployment and returns them
+        sorted by revision number (oldest first). Each entry includes the
+        revision number and the container image(s) that were deployed.
+
+        Args:
+            name:      Deployment name.
+            namespace: Kubernetes namespace (must be in the allowed list).
+
+        Raises:
+            PermissionError: If *namespace* is not in the allowed list.
+            KubernetesOperationError: If the Deployment or ReplicaSets cannot
+                be retrieved.
+        """
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+
+        # Confirm the deployment exists first
+        execute_kubernetes_api_call(
+            operation="read Deployment",
+            resource=f"{namespace}/{name}",
+            call=lambda: self._apps_v1_api.read_namespaced_deployment(
+                name=name,
+                namespace=namespace,
+            ),
+        )
+
+        replica_sets = cast(
+            kubernetes_client.V1ReplicaSetList,
+            execute_kubernetes_api_call(
+                operation="list Deployment ReplicaSets",
+                resource=f"namespace {namespace!r}",
+                call=lambda: self._apps_v1_api.list_namespaced_replica_set(
+                    namespace=namespace
+                ),
+            ),
+        )
+
+        history: list[dict[str, Any]] = []
+        for rs in replica_sets.items or []:
+            meta = rs.metadata
+            if meta is None or not meta.owner_references:
+                continue
+            if not any(
+                owner.kind == "Deployment" and owner.name == name
+                for owner in meta.owner_references
+            ):
+                continue
+            annotations = meta.annotations or {}
+            revision_text = annotations.get("deployment.kubernetes.io/revision")
+            if revision_text is None:
+                continue
+            try:
+                revision = int(revision_text)
+            except ValueError:
+                continue
+
+            images: list[str] = []
+            if rs.spec and rs.spec.template and rs.spec.template.spec:
+                images = [
+                    c.image or "unknown"
+                    for c in (rs.spec.template.spec.containers or [])
+                ]
+
+            history.append(
+                {
+                    "revision": revision,
+                    "replica_set": meta.name,
+                    "images": images,
+                    "change_cause": annotations.get(
+                        "kubernetes.io/change-cause", "<none>"
+                    ),
+                    "created_at": (
+                        meta.creation_timestamp.isoformat()
+                        if meta.creation_timestamp
+                        else None
+                    ),
+                }
+            )
+
+        history.sort(key=lambda e: e["revision"])
+        return {
+            "deployment": name,
+            "namespace": namespace,
+            "total_revisions": len(history),
+            "revisions": history,
+        }
+
+    # ------------------------------------------------------------------
+    # Create / Delete Methods
+    # ------------------------------------------------------------------
+
+    def create_deployment(
+        self,
+        name: str,
+        namespace: str,
+        image: str,
+        *,
+        replicas: int = 1,
+        container_name: str | None = None,
+        port: int | None = None,
+        labels: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """Create a new Deployment in an allowed namespace.
+
+        Builds and submits a minimal, secure Deployment manifest.
+        The Deployment uses a standard label selector based on the
+        ``app`` label set to *name*. Only one container is created.
+
+        Args:
+            name:           Deployment name (also used as ``app`` label).
+            namespace:      Kubernetes namespace (must be in the allowed list).
+            image:          Full container image reference (e.g. ``nginx:1.27``).
+            replicas:       Initial number of replicas (default 1).
+            container_name: Container name inside the pod spec. Defaults to *name*.
+            port:           Optional container port to expose in the spec.
+            labels:         Additional labels merged onto the Deployment and
+                            Pod template metadata.
+
+        Raises:
+            PermissionError: If *namespace* is not in the allowed list.
+            KubernetesOperationError: If the API call fails (e.g. already exists).
+        """
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+
+        effective_container_name = container_name or name
+        base_labels: dict[str, str] = {
+            "app": name,
+            "app.kubernetes.io/managed-by": "chatops",
+        }
+        if labels:
+            base_labels.update(labels)
+
+        container_ports: list[kubernetes_client.V1ContainerPort] = []
+        if port is not None:
+            container_ports.append(
+                kubernetes_client.V1ContainerPort(container_port=port)
+            )
+
+        deployment = kubernetes_client.V1Deployment(
+            api_version="apps/v1",
+            kind="Deployment",
+            metadata=kubernetes_client.V1ObjectMeta(
+                name=name,
+                namespace=namespace,
+                labels=base_labels,
+            ),
+            spec=kubernetes_client.V1DeploymentSpec(
+                replicas=replicas,
+                selector=kubernetes_client.V1LabelSelector(
+                    match_labels={"app": name}
+                ),
+                template=kubernetes_client.V1PodTemplateSpec(
+                    metadata=kubernetes_client.V1ObjectMeta(labels={"app": name}),
+                    spec=kubernetes_client.V1PodSpec(
+                        automount_service_account_token=False,
+                        containers=[
+                            kubernetes_client.V1Container(
+                                name=effective_container_name,
+                                image=image,
+                                image_pull_policy="IfNotPresent",
+                                ports=container_ports or None,
+                                resources=kubernetes_client.V1ResourceRequirements(
+                                    requests={"cpu": "50m", "memory": "64Mi"},
+                                    limits={"cpu": "250m", "memory": "256Mi"},
+                                ),
+                                security_context=kubernetes_client.V1SecurityContext(
+                                    allow_privilege_escalation=False,
+                                    capabilities=kubernetes_client.V1Capabilities(
+                                        drop=["ALL"]
+                                    ),
+                                ),
+                            )
+                        ],
+                        security_context=kubernetes_client.V1PodSecurityContext(
+                            seccomp_profile=kubernetes_client.V1SeccompProfile(
+                                type="RuntimeDefault"
+                            )
+                        ),
+                    ),
+                ),
+                strategy=kubernetes_client.V1DeploymentStrategy(type="RollingUpdate"),
+            ),
+        )
+
+        raw_response = execute_kubernetes_api_call(
+            operation="create Deployment",
+            resource=f"{namespace}/{name}",
+            call=lambda: self._apps_v1_api.create_namespaced_deployment(
+                namespace=namespace,
+                body=deployment,
+            ),
+        )
+        return cast(
+            dict[str, Any],
+            self._api_client.sanitize_for_serialization(raw_response),
+        )
+
+    def delete_deployment(
+        self,
+        name: str,
+        namespace: str,
+    ) -> dict[str, Any]:
+        """Delete a Deployment from an allowed namespace.
+
+        The Kubernetes garbage collector will cascade-delete the owned
+        ReplicaSets and Pods automatically.
+
+        Args:
+            name:      Deployment name.
+            namespace: Kubernetes namespace (must be in the allowed list).
+
+        Raises:
+            PermissionError: If *namespace* is not in the allowed list.
+            KubernetesOperationError: If the API call fails.
+        """
+        validate_kubernetes_namespace(namespace, self._allowed_namespaces)
+
+        execute_kubernetes_api_call(
+            operation="delete Deployment",
+            resource=f"{namespace}/{name}",
+            call=lambda: self._apps_v1_api.delete_namespaced_deployment(
+                name=name,
+                namespace=namespace,
+                body=kubernetes_client.V1DeleteOptions(
+                    propagation_policy="Foreground",
+                    grace_period_seconds=0,
+                ),
+            ),
+        )
+        return {
+            "status": "deleted",
+            "deployment": name,
+            "namespace": namespace,
+            "message": (
+                f"Deployment '{name}' in namespace '{namespace}' has been deleted. "
+                "Kubernetes will cascade-delete its ReplicaSets and Pods."
+            ),
+        }
+
+    # ------------------------------------------------------------------
+    # Mutation Methods (Scale / Restart / Update / Rollback / Pause / Resume)
+    # ------------------------------------------------------------------
 
     def scale_deployment(
         self,

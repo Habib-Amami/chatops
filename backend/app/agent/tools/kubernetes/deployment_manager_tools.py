@@ -38,6 +38,166 @@ def create_deployment_manager_tools(
     """Create deployment orchestration tools bound to the management service."""
 
     @tool
+    def list_kubernetes_deployments(
+        namespace: str,
+    ) -> list[dict]:
+        """List all Deployments in a Kubernetes namespace with their replica counts and health.
+
+        USE THIS when the user asks to:
+        - 'list deployments in <namespace>'
+        - 'show all deployments'
+        - 'what deployments are running in <namespace>?'
+
+        Args:
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return _call_deployment_service(
+            lambda: deployment_manager_service.list_deployments(
+                namespace=namespace,
+            )
+        )
+
+    @tool
+    def get_kubernetes_deployment(
+        name: str,
+        namespace: str,
+    ) -> dict:
+        """Get full details for a single Kubernetes Deployment.
+
+        USE THIS when the user asks to:
+        - 'get deployment <name> in <namespace>'
+        - 'describe deployment <name>'
+        - 'show details of <name> deployment'
+
+        Returns metadata, replica counts, container images, strategy, and conditions.
+
+        Args:
+            name:      Deployment name (e.g. 'backend').
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return _call_deployment_service(
+            lambda: deployment_manager_service.get_deployment(
+                name=name,
+                namespace=namespace,
+            )
+        )
+
+    @tool
+    def get_kubernetes_deployment_status(
+        name: str,
+        namespace: str,
+    ) -> dict:
+        """Get the rollout health status of a Kubernetes Deployment.
+
+        USE THIS when the user asks:
+        - 'is deployment <name> healthy?'
+        - 'what is the status of <name>?'
+        - 'is the rollout complete for <name>?'
+
+        Returns rollout_state (complete / in_progress / degraded / unknown),
+        replica counts, and rollout conditions.
+
+        Args:
+            name:      Deployment name.
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return _call_deployment_service(
+            lambda: deployment_manager_service.get_deployment_status(
+                name=name,
+                namespace=namespace,
+            )
+        )
+
+    @tool
+    def get_kubernetes_deployment_history(
+        name: str,
+        namespace: str,
+    ) -> dict:
+        """Get the revision history for a Kubernetes Deployment.
+
+        USE THIS when the user asks:
+        - 'show rollout history for <name>'
+        - 'what revisions exist for <name>?'
+        - 'list versions of <name> deployment'
+
+        Returns all ReplicaSet revisions sorted oldest-first, each with its
+        container images and change-cause annotation.
+
+        Args:
+            name:      Deployment name.
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return _call_deployment_service(
+            lambda: deployment_manager_service.get_deployment_history(
+                name=name,
+                namespace=namespace,
+            )
+        )
+
+    @tool
+    def create_kubernetes_deployment(
+        name: str,
+        namespace: str,
+        image: str,
+        replicas: int = 1,
+        container_name: str | None = None,
+        port: int | None = None,
+    ) -> dict:
+        """Create a new Kubernetes Deployment in an allowed namespace.
+
+        USE THIS when the user asks to:
+        - 'create a deployment named <name> with image <image> in <namespace>'
+        - 'deploy <image> as <name> in <namespace>'
+        - 'launch a new deployment'
+
+        Builds a secure, minimal Deployment manifest with resource limits
+        and a RollingUpdate strategy.
+
+        Args:
+            name:           Deployment name.
+            namespace:      Kubernetes namespace (must be in the allowed list).
+            image:          Container image reference (e.g. 'nginx:alpine').
+            replicas:       Number of initial replicas (default 1).
+            container_name: Container name — defaults to the deployment name.
+            port:           Optional container port to expose.
+        """
+        return _call_deployment_service(
+            lambda: deployment_manager_service.create_deployment(
+                name=name,
+                namespace=namespace,
+                image=image,
+                replicas=replicas,
+                container_name=container_name,
+                port=port,
+            )
+        )
+
+    @tool
+    def delete_kubernetes_deployment(
+        name: str,
+        namespace: str,
+    ) -> dict:
+        """Delete a Kubernetes Deployment from an allowed namespace.
+
+        USE THIS when the user asks to:
+        - 'delete deployment <name> in <namespace>'
+        - 'remove deployment <name>'
+        - 'tear down <name> in <namespace>'
+
+        Kubernetes will cascade-delete the owned ReplicaSets and Pods.
+
+        Args:
+            name:      Deployment name.
+            namespace: Kubernetes namespace (must be in the allowed list).
+        """
+        return _call_deployment_service(
+            lambda: deployment_manager_service.delete_deployment(
+                name=name,
+                namespace=namespace,
+            )
+        )
+
+    @tool
     def scale_kubernetes_deployment(
         name: str,
         namespace: str,
@@ -192,6 +352,12 @@ def create_deployment_manager_tools(
         )
 
     tools = [
+        list_kubernetes_deployments,
+        get_kubernetes_deployment,
+        get_kubernetes_deployment_status,
+        get_kubernetes_deployment_history,
+        create_kubernetes_deployment,
+        delete_kubernetes_deployment,
         scale_kubernetes_deployment,
         restart_kubernetes_deployment,
         update_kubernetes_deployment_image,
