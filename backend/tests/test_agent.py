@@ -440,7 +440,7 @@ def test_agent_tool_registry_has_unique_names() -> None:
     )
     names = [tool.name for tool in tools]
 
-    assert len(names) == 18
+    assert len(names) == 24
     assert len(names) == len(set(names))
     assert "list_s3_buckets" in names
     assert "list_s3_objects" in names
