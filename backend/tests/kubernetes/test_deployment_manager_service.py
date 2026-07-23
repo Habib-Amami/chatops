@@ -282,9 +282,7 @@ def test_get_deployment_returns_details(mock_k8s_resources) -> None:
             replicas=1,
             paused=None,
             strategy=SimpleNamespace(type="RollingUpdate"),
-            template=SimpleNamespace(
-                spec=SimpleNamespace(containers=[container])
-            ),
+            template=SimpleNamespace(spec=SimpleNamespace(containers=[container])),
         ),
         status=SimpleNamespace(
             ready_replicas=1,
@@ -401,9 +399,7 @@ def _make_rs(name: str, revision: str, owner: str, image: str) -> SimpleNamespac
         ),
         spec=SimpleNamespace(
             template=SimpleNamespace(
-                spec=SimpleNamespace(
-                    containers=[SimpleNamespace(image=image)]
-                )
+                spec=SimpleNamespace(containers=[SimpleNamespace(image=image)])
             )
         ),
     )

@@ -136,9 +136,7 @@ class DeploymentManagerService:
                     {
                         "name": c.name,
                         "image": c.image,
-                        "ports": [
-                            p.container_port for p in (c.ports or [])
-                        ],
+                        "ports": [p.container_port for p in (c.ports or [])],
                     }
                 )
 
@@ -157,9 +155,7 @@ class DeploymentManagerService:
             "available_replicas": status.available_replicas if status else None,
             "updated_replicas": status.updated_replicas if status else None,
             "paused": bool(spec.paused) if spec else False,
-            "strategy": (
-                spec.strategy.type if spec and spec.strategy else None
-            ),
+            "strategy": (spec.strategy.type if spec and spec.strategy else None),
             "containers": containers,
             "conditions": [
                 {
@@ -168,9 +164,7 @@ class DeploymentManagerService:
                     "reason": c.reason,
                     "message": c.message,
                     "last_update": (
-                        c.last_update_time.isoformat()
-                        if c.last_update_time
-                        else None
+                        c.last_update_time.isoformat() if c.last_update_time else None
                     ),
                 }
                 for c in (status.conditions or [])
@@ -408,9 +402,7 @@ class DeploymentManagerService:
             ),
             spec=kubernetes_client.V1DeploymentSpec(
                 replicas=replicas,
-                selector=kubernetes_client.V1LabelSelector(
-                    match_labels={"app": name}
-                ),
+                selector=kubernetes_client.V1LabelSelector(match_labels={"app": name}),
                 template=kubernetes_client.V1PodTemplateSpec(
                     metadata=kubernetes_client.V1ObjectMeta(labels={"app": name}),
                     spec=kubernetes_client.V1PodSpec(
