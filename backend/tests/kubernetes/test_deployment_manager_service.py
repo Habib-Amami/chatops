@@ -8,7 +8,6 @@ import pytest
 from app.core import Settings
 from app.platforms.kubernetes import (
     KubernetesOperationError,
-    KubernetesResourceNotFoundError,
 )
 from app.platforms.kubernetes.services.deployment_manager_service import (
     DeploymentManagerService,
