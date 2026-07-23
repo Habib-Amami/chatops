@@ -26,3 +26,26 @@ Use these frontend settings for Agent Chat UI:
 NEXT_PUBLIC_API_URL=http://localhost:2024
 NEXT_PUBLIC_ASSISTANT_ID=agent
 ```
+
+## Optional LangSmith tracing
+
+The LangGraph development server opens the hosted LangGraph Studio interface,
+which connects to the local API on port 2024. Enable tracing in the untracked
+backend `.env`:
+
+```env
+LANGSMITH_API_KEY=your-langsmith-api-key
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=chatops-local
+```
+
+Restart the server, execute an agent request, and inspect the resulting run in
+the `chatops-local` LangSmith project. The LangSmith key is independent of the
+model provider's `MODEL_API_KEY`.
+
+Tracing may upload prompts, model responses, tool arguments/results,
+Kubernetes metadata and logs, and AWS results. Do not enable it for sensitive
+data without an approved data-handling policy.
+
+The complete local configuration is documented in the
+[environment-variable reference](../docs/setup/linux/environment-variables.md).

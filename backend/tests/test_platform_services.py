@@ -24,7 +24,7 @@ from app.platforms.kubernetes.models import PodCreateResult, PodDeleteResult
 
 def test_pod_service_lists_sanitized_pod_health() -> None:
     pod = SimpleNamespace(
-        metadata=SimpleNamespace(name="api-123", namespace="chatops-demo"),
+        metadata=SimpleNamespace(name="api-123", namespace="demo-app"),
         spec=SimpleNamespace(
             node_name="minikube",
             containers=[
@@ -48,12 +48,12 @@ def test_pod_service_lists_sanitized_pod_health() -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.get_pods("chatops-demo")
+    result = service.get_pods("demo-app")
 
     assert len(result) == 1
     assert result[0].model_dump() == {
         "name": "api-123",
-        "namespace": "chatops-demo",
+        "namespace": "demo-app",
         "phase": "Running",
         "ready": True,
         "restart_count": 1,
@@ -61,7 +61,7 @@ def test_pod_service_lists_sanitized_pod_health() -> None:
         "pod_ip": "10.244.0.10",
         "images": ["example/api:1.0", "example/sidecar:1.0"],
     }
-    core_api.list_namespaced_pod.assert_called_once_with(namespace="chatops-demo")
+    core_api.list_namespaced_pod.assert_called_once_with(namespace="demo-app")
 
 
 def test_pod_service_rejects_disallowed_namespace() -> None:
@@ -82,7 +82,7 @@ def test_pod_service_gets_pod_details() -> None:
     pod = SimpleNamespace(
         metadata=SimpleNamespace(
             name="api-123",
-            namespace="chatops-demo",
+            namespace="demo-app",
             labels={"app": "api"},
             creation_timestamp=created_at,
             owner_references=[
@@ -136,11 +136,11 @@ def test_pod_service_gets_pod_details() -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.get_pod("chatops-demo", "api-123")
+    result = service.get_pod("demo-app", "api-123")
 
     assert result.model_dump() == {
         "name": "api-123",
-        "namespace": "chatops-demo",
+        "namespace": "demo-app",
         "phase": "Running",
         "ready": False,
         "restart_count": 2,
@@ -190,7 +190,7 @@ def test_pod_service_gets_pod_details() -> None:
     }
     core_api.read_namespaced_pod.assert_called_once_with(
         name="api-123",
-        namespace="chatops-demo",
+        namespace="demo-app",
     )
 
 
@@ -203,7 +203,7 @@ def test_pod_service_gets_limited_pod_logs() -> None:
     service = PodService(settings, clients)
 
     result = service.get_pod_logs(
-        "chatops-demo",
+        "demo-app",
         "api-123",
         container="api",
         tail_lines=9999,
@@ -214,7 +214,7 @@ def test_pod_service_gets_limited_pod_logs() -> None:
     assert result == "error log"
     core_api.read_namespaced_pod_log.assert_called_once_with(
         name="api-123",
-        namespace="chatops-demo",
+        namespace="demo-app",
         container="api",
         tail_lines=200,
         timestamps=True,
@@ -234,7 +234,7 @@ def test_pod_service_decodes_byte_logs() -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.get_pod_logs("chatops-demo", "api-123")
+    result = service.get_pod_logs("demo-app", "api-123")
 
     assert result == "2026-01-02 first line\n2026-01-02 second line\n"
     assert "b'" not in result
@@ -251,7 +251,7 @@ def test_pod_service_decodes_raw_http_log_response() -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.get_pod_logs("chatops-demo", "api-123")
+    result = service.get_pod_logs("demo-app", "api-123")
 
     assert result == "2026-01-02 first line\n2026-01-02 second line\n"
     assert "b'" not in result
@@ -268,7 +268,7 @@ def test_pod_service_returns_decoded_logs_without_presentation_formatting() -> N
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.get_pod_logs("chatops-demo", "api-123")
+    result = service.get_pod_logs("demo-app", "api-123")
 
     assert result == logs
 
@@ -291,7 +291,7 @@ def test_pod_service_lists_pod_events() -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.get_pod_events("chatops-demo", "api-123")
+    result = service.get_pod_events("demo-app", "api-123")
 
     assert [event.model_dump() for event in result] == [
         {
@@ -304,7 +304,7 @@ def test_pod_service_lists_pod_events() -> None:
         }
     ]
     core_api.list_namespaced_event.assert_called_once_with(
-        namespace="chatops-demo",
+        namespace="demo-app",
         field_selector="involvedObject.name=api-123,involvedObject.kind=Pod",
         limit=20,
     )
@@ -371,11 +371,11 @@ def test_pod_service_diagnoses_waiting_container() -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.diagnose_pod_status("chatops-demo", "api-123")
+    result = service.diagnose_pod_status("demo-app", "api-123")
 
     assert result.model_dump() == {
         "pod_name": "api-123",
-        "namespace": "chatops-demo",
+        "namespace": "demo-app",
         "phase": "Pending",
         "containers": [
             {
@@ -420,7 +420,7 @@ def test_pod_service_diagnoses_waiting_container() -> None:
     }
     core_api.read_namespaced_pod_status.assert_called_once_with(
         name="api-123",
-        namespace="chatops-demo",
+        namespace="demo-app",
     )
 
 
@@ -432,7 +432,7 @@ def test_pod_service_requests_pod_deletion() -> None:
     mutation_verifier = MagicMock(spec=PodMutationVerifier)
     mutation_verifier.verify_deletion.return_value = PodDeleteResult(
         pod_name="api-123",
-        namespace="chatops-demo",
+        namespace="demo-app",
         status="deleted",
         deleted=True,
     )
@@ -442,21 +442,21 @@ def test_pod_service_requests_pod_deletion() -> None:
         mutation_verifier=mutation_verifier,
     )
 
-    result = service.delete_pod("chatops-demo", "api-123")
+    result = service.delete_pod("demo-app", "api-123")
 
     assert result.model_dump() == {
         "pod_name": "api-123",
-        "namespace": "chatops-demo",
+        "namespace": "demo-app",
         "status": "deleted",
         "deleted": True,
         "verification_message": None,
     }
     core_api.delete_namespaced_pod.assert_called_once_with(
         name="api-123",
-        namespace="chatops-demo",
+        namespace="demo-app",
     )
     mutation_verifier.verify_deletion.assert_called_once_with(
-        namespace="chatops-demo",
+        namespace="demo-app",
         pod_name="api-123",
     )
 
@@ -476,7 +476,7 @@ def test_pod_service_verifies_and_creates_standalone_pod() -> None:
     mutation_verifier = MagicMock(spec=PodMutationVerifier)
     mutation_verifier.verify_creation.return_value = PodCreateResult(
         pod_name="manual-test",
-        namespace="chatops-demo",
+        namespace="demo-app",
         image="docker.io/library/nginx:alpine",
         registry="docker.io",
         status="ready",
@@ -491,14 +491,14 @@ def test_pod_service_verifies_and_creates_standalone_pod() -> None:
     )
 
     result = service.create_pod(
-        "chatops-demo",
+        "demo-app",
         "manual-test",
         "nginx:alpine",
     )
 
     assert result.model_dump() == {
         "pod_name": "manual-test",
-        "namespace": "chatops-demo",
+        "namespace": "demo-app",
         "image": "docker.io/library/nginx:alpine",
         "registry": "docker.io",
         "manifest_verified": True,
@@ -510,13 +510,13 @@ def test_pod_service_verifies_and_creates_standalone_pod() -> None:
     registry_client.resolve.assert_called_once_with("nginx:alpine", None)
     registry_client.verify_exists.assert_called_once_with(image_reference)
     mutation_verifier.verify_creation.assert_called_once_with(
-        namespace="chatops-demo",
+        namespace="demo-app",
         pod_name="manual-test",
         image="docker.io/library/nginx:alpine",
         registry="docker.io",
     )
     call = core_api.create_namespaced_pod.call_args
-    assert call.kwargs["namespace"] == "chatops-demo"
+    assert call.kwargs["namespace"] == "demo-app"
     pod = call.kwargs["body"]
     assert pod.metadata.name == "manual-test"
     assert pod.metadata.owner_references is None
@@ -547,7 +547,7 @@ def test_pod_service_rejects_invalid_pod_name_before_registry_check() -> None:
 
     with pytest.raises(KubernetesOperationError, match="Pod name"):
         service.create_pod(
-            "chatops-demo",
+            "demo-app",
             "Invalid_Pod",
             "nginx:alpine",
         )
@@ -565,7 +565,7 @@ def test_pod_service_rejects_disallowed_registry() -> None:
 
     with pytest.raises(PermissionError, match="not allowed"):
         service.create_pod(
-            "chatops-demo",
+            "demo-app",
             "manual-test",
             "example/app:latest",
             "untrusted.example",
@@ -611,7 +611,7 @@ def test_pod_service_sorts_and_caps_pod_events() -> None:
     settings = Settings(_env_file=None)  # pyright: ignore[reportCallIssue]
     service = PodService(settings, clients)
 
-    result = service.get_pod_events("chatops-demo", "api-123", limit=999)
+    result = service.get_pod_events("demo-app", "api-123", limit=999)
 
     assert [event.reason for event in result] == ["BackOff", "Scheduled"]
     assert core_api.list_namespaced_event.call_args.kwargs["limit"] == 100
@@ -630,9 +630,9 @@ def test_pod_service_normalizes_not_found_error() -> None:
 
     with pytest.raises(
         KubernetesResourceNotFoundError,
-        match="chatops-demo/api-123 was not found",
+        match="demo-app/api-123 was not found",
     ):
-        service.get_pod("chatops-demo", "api-123")
+        service.get_pod("demo-app", "api-123")
 
 
 def test_pod_service_normalizes_access_denied_error() -> None:
@@ -647,7 +647,7 @@ def test_pod_service_normalizes_access_denied_error() -> None:
     service = PodService(settings, clients)
 
     with pytest.raises(KubernetesAccessDeniedError, match="Access was denied"):
-        service.delete_pod("chatops-demo", "api-123")
+        service.delete_pod("demo-app", "api-123")
 
 
 def test_pod_service_normalizes_transport_error() -> None:
@@ -662,4 +662,4 @@ def test_pod_service_normalizes_transport_error() -> None:
         KubernetesOperationError,
         match="Could not contact the Kubernetes API",
     ):
-        service.get_pods("chatops-demo")
+        service.get_pods("demo-app")

@@ -18,6 +18,7 @@ class S3Service:
         clients: AWSClientFactory,
     ) -> None:
         self._allowed_buckets = frozenset(settings.s3_allowed_buckets)
+        self._log_bucket = settings.s3_log_bucket
         self._s3_client: BaseClient = clients.get_client("s3")
 
     def list_buckets(self) -> list[BucketSummary]:
@@ -81,7 +82,7 @@ class S3Service:
         return response["Body"].read().decode("utf-8")
 
     def save_audit_log(self, action: str, target: str, result: str) -> ObjectSummary:
-        """Save a ChatOps audit entry to the opstasks-logs bucket."""
+        """Save a ChatOps audit entry to the configured log bucket."""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         key = f"chatops/audit/{timestamp}_{action}_{target}.json"
         content = (
@@ -90,11 +91,11 @@ class S3Service:
             f'"target": "{target}", '
             f'"result": "{result}"}}'
         )
-        return self.upload_object("opstasks-logs", key, content)
+        return self.upload_object(self._log_bucket, key, content)
 
     def save_chat_log(self, question: str, answer: str) -> ObjectSummary:
-        """Save a ChatOps conversation turn to the opstasks-logs bucket."""
+        """Save a ChatOps conversation turn to the configured log bucket."""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         key = f"chatops/conversations/{timestamp}.txt"
         content = f"Q: {question}\n\nA: {answer}"
-        return self.upload_object("opstasks-logs", key, content)
+        return self.upload_object(self._log_bucket, key, content)
