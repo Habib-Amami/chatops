@@ -38,7 +38,7 @@ def test_s3_bucket_tool_formats_structured_service_results() -> None:
     s3_service = MagicMock()
     s3_service.list_buckets.return_value = [
         BucketSummary(
-            name="opstasks-logs",
+            name="chatops-logs",
             creation_date="2026-07-21T10:00:00+00:00",
         )
     ]
@@ -47,7 +47,7 @@ def test_s3_bucket_tool_formats_structured_service_results() -> None:
     result = tool.invoke({})
 
     assert result == (
-        "S3 buckets:\n- opstasks-logs: created_at=2026-07-21T10:00:00+00:00"
+        "S3 buckets:\n- chatops-logs: created_at=2026-07-21T10:00:00+00:00"
     )
 
 
@@ -56,10 +56,10 @@ def test_s3_object_tool_formats_empty_and_non_empty_results() -> None:
     tool = _tools_by_name(create_s3_tools(s3_service))["list_s3_objects"]
     s3_service.list_objects.return_value = []
 
-    empty_result = tool.invoke({"bucket": "opstasks-logs", "prefix": "audit/"})
+    empty_result = tool.invoke({"bucket": "chatops-logs", "prefix": "audit/"})
 
     assert empty_result == (
-        "No S3 objects were found in bucket 'opstasks-logs' with prefix 'audit/'."
+        "No S3 objects were found in bucket 'chatops-logs' with prefix 'audit/'."
     )
 
     s3_service.list_objects.return_value = [
@@ -67,14 +67,14 @@ def test_s3_object_tool_formats_empty_and_non_empty_results() -> None:
             key="audit/event.json",
             size=128,
             last_modified="2026-07-21T10:05:00+00:00",
-            bucket="opstasks-logs",
+            bucket="chatops-logs",
         )
     ]
 
-    result = tool.invoke({"bucket": "opstasks-logs", "prefix": "audit/"})
+    result = tool.invoke({"bucket": "chatops-logs", "prefix": "audit/"})
 
     assert result == (
-        "S3 objects in bucket 'opstasks-logs' with prefix 'audit/':\n"
+        "S3 objects in bucket 'chatops-logs' with prefix 'audit/':\n"
         "- audit/event.json: size_bytes=128, "
         "last_modified=2026-07-21T10:05:00+00:00"
     )

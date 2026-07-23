@@ -16,6 +16,7 @@ def test_settings_default_to_local_platforms() -> None:
     assert settings.allow_real_aws is False
     assert settings.kubernetes_target == "minikube"
     assert settings.kubernetes_context == "minikube"
+    assert settings.kubernetes_allowed_namespaces == ["default", "demo-app"]
     assert settings.kubernetes_default_pod_registry == "docker.io"
     assert settings.kubernetes_allowed_pod_registries == [
         "docker.io",
@@ -29,6 +30,8 @@ def test_settings_default_to_local_platforms() -> None:
     assert settings.model_timeout_seconds == 30.0
     assert settings.model_max_retries == 0
     assert settings.agent_timeout_seconds == 45.0
+    assert settings.s3_allowed_buckets == ["chatops-logs", "chatops-assets"]
+    assert settings.s3_log_bucket == "chatops-logs"
 
 
 def test_settings_expand_kubeconfig_home_directory() -> None:
@@ -83,6 +86,14 @@ def test_localstack_credentials_cannot_be_empty() -> None:
         Settings(
             _env_file=None,  # pyright: ignore[reportCallIssue]
             aws_access_key_id="",
+        )
+
+
+def test_s3_log_bucket_must_be_allowed() -> None:
+    with pytest.raises(ValidationError, match="S3_LOG_BUCKET"):
+        Settings(
+            _env_file=None,  # pyright: ignore[reportCallIssue]
+            s3_log_bucket="other-logs",
         )
 
 

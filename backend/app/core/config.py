@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     kubernetes_in_cluster: bool = False
     kubeconfig: Path = Path.home() / ".kube" / "config"
     kubernetes_allowed_namespaces: list[str] = Field(
-        default_factory=lambda: ["default", "chatops-demo"]
+        default_factory=lambda: ["default", "demo-app"]
     )
     kubernetes_default_pod_registry: str = "docker.io"
     kubernetes_allowed_pod_registries: list[str] = Field(
@@ -63,8 +63,9 @@ class Settings(BaseSettings):
     allow_real_kubernetes: bool = False
 
     s3_allowed_buckets: list[str] = Field(
-        default_factory=lambda: ["opstasks-logs", "opstasks-assets"]
+        default_factory=lambda: ["chatops-logs", "chatops-assets"]
     )
+    s3_log_bucket: str = "chatops-logs"
 
     @field_validator("kubeconfig")
     @classmethod
@@ -98,6 +99,8 @@ class Settings(BaseSettings):
             )
         if not self.kubernetes_allowed_namespaces:
             raise ValueError("At least one Kubernetes namespace must be allowed")
+        if self.s3_log_bucket not in self.s3_allowed_buckets:
+            raise ValueError("S3_LOG_BUCKET must be present in S3_ALLOWED_BUCKETS")
         if not self.kubernetes_allowed_pod_registries:
             raise ValueError("At least one container registry must be allowed")
         if (
