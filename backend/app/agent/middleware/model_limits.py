@@ -56,6 +56,14 @@ def get_model_limit_message(error: Exception) -> str | None:
             "available quota, then retry."
         )
 
+    if status_code == 400 and "role:tool" in error_text and "content" in error_text:
+        return (
+            "The model received an empty tool result, which is not supported by "
+            "this provider. This can happen when a Kubernetes or AWS tool returns "
+            "no data. Please try rephrasing your request or targeting a resource "
+            "that exists in the cluster."
+        )
+
     return None
 
 
