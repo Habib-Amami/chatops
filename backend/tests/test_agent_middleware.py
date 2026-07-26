@@ -82,6 +82,19 @@ def test_model_limit_message_detects_provider_text_fallback() -> None:
     assert get_model_limit_message(error) is not None
 
 
+def test_model_limit_message_handles_provider_tool_content_error() -> None:
+    error = FakeProviderError(
+        400,
+        "'messages.3': for 'role:tool', content value must be a string",
+    )
+
+    message = get_model_limit_message(error)
+
+    assert message is not None
+    assert "tool result" in message
+    assert "messages.3" not in message
+
+
 def _mutation_request(config: dict[str, Any]) -> ToolCallRequest:
     runtime = MagicMock()
     runtime.config = config

@@ -48,7 +48,11 @@ def test_scale_deployment_success(mock_k8s_resources) -> None:
 
     result = service.scale_deployment("my-dep", "demo-app", 3)
 
-    assert result == {"status": "scaled"}
+    assert result.operation == "scale"
+    assert result.status == "requested"
+    assert result.deployment_name == "my-dep"
+    assert result.namespace == "demo-app"
+    assert result.replicas == 3
     apps_v1_api.patch_namespaced_deployment_scale.assert_called_once_with(
         name="my-dep", namespace="demo-app", body={"spec": {"replicas": 3}}
     )
@@ -69,7 +73,8 @@ def test_restart_deployment_success(mock_k8s_resources) -> None:
 
     result = service.restart_deployment("my-dep", "demo-app")
 
-    assert result == {"status": "restarting"}
+    assert result.operation == "restart"
+    assert result.status == "requested"
     apps_v1_api.patch_namespaced_deployment.assert_called_once()
     call_args = apps_v1_api.patch_namespaced_deployment.call_args[1]
     assert call_args["name"] == "my-dep"
@@ -88,7 +93,9 @@ def test_update_deployment_image_success(mock_k8s_resources) -> None:
         "my-dep", "demo-app", "web", "nginx:latest"
     )
 
-    assert result == {"status": "updating"}
+    assert result.operation == "update_image"
+    assert result.container_name == "web"
+    assert result.image == "nginx:latest"
     apps_v1_api.patch_namespaced_deployment.assert_called_once_with(
         name="my-dep",
         namespace="demo-app",
@@ -148,7 +155,8 @@ def test_rollback_deployment_to_previous_success(mock_k8s_resources) -> None:
 
     result = service.rollback_deployment("my-dep", "demo-app")
 
-    assert result == {"status": "rolled back"}
+    assert result.operation == "rollback"
+    assert result.revision == 1
     apps_v1_api.patch_namespaced_deployment.assert_called_once_with(
         name="my-dep",
         namespace="demo-app",
@@ -181,7 +189,8 @@ def test_rollback_deployment_to_specific_revision_success(mock_k8s_resources) ->
 
     result = service.rollback_deployment("my-dep", "demo-app", revision=1)
 
-    assert result == {"status": "rolled back to 1"}
+    assert result.operation == "rollback"
+    assert result.revision == 1
     apps_v1_api.patch_namespaced_deployment.assert_called_once_with(
         name="my-dep",
         namespace="demo-app",
@@ -237,11 +246,11 @@ def test_list_deployments_returns_summary(mock_k8s_resources) -> None:
     result = service.list_deployments("demo-app")
 
     assert len(result) == 1
-    assert result[0]["name"] == "backend"
-    assert result[0]["desired_replicas"] == 2
-    assert result[0]["ready_replicas"] == 2
-    assert result[0]["paused"] is False
-    assert result[0]["conditions"][0]["type"] == "Available"
+    assert result[0].name == "backend"
+    assert result[0].desired_replicas == 2
+    assert result[0].ready_replicas == 2
+    assert result[0].paused is False
+    assert result[0].conditions[0].type == "Available"
 
 
 def test_list_deployments_rejected_namespace(mock_k8s_resources) -> None:
@@ -295,11 +304,11 @@ def test_get_deployment_returns_details(mock_k8s_resources) -> None:
 
     result = service.get_deployment("backend", "demo-app")
 
-    assert result["name"] == "backend"
-    assert result["desired_replicas"] == 1
-    assert result["strategy"] == "RollingUpdate"
-    assert result["containers"][0]["name"] == "backend"
-    assert result["containers"][0]["image"] == "myapp:v1"
+    assert result.name == "backend"
+    assert result.desired_replicas == 1
+    assert result.strategy == "RollingUpdate"
+    assert result.containers[0].name == "backend"
+    assert result.containers[0].image == "myapp:v1"
 
 
 def test_get_deployment_rejected_namespace(mock_k8s_resources) -> None:
@@ -331,9 +340,9 @@ def test_get_deployment_status_complete(mock_k8s_resources) -> None:
 
     result = service.get_deployment_status("backend", "demo-app")
 
-    assert result["rollout_state"] == "complete"
-    assert result["ready_replicas"] == 3
-    assert result["desired_replicas"] == 3
+    assert result.rollout_state == "complete"
+    assert result.ready_replicas == 3
+    assert result.desired_replicas == 3
 
 
 def test_get_deployment_status_degraded(mock_k8s_resources) -> None:
@@ -351,7 +360,7 @@ def test_get_deployment_status_degraded(mock_k8s_resources) -> None:
 
     result = service.get_deployment_status("backend", "demo-app")
 
-    assert result["rollout_state"] == "degraded"
+    assert result.rollout_state == "degraded"
 
 
 def test_get_deployment_status_in_progress(mock_k8s_resources) -> None:
@@ -369,7 +378,7 @@ def test_get_deployment_status_in_progress(mock_k8s_resources) -> None:
 
     result = service.get_deployment_status("backend", "demo-app")
 
-    assert result["rollout_state"] == "in_progress"
+    assert result.rollout_state == "in_progress"
 
 
 def test_get_deployment_status_rejected_namespace(mock_k8s_resources) -> None:
@@ -417,11 +426,11 @@ def test_get_deployment_history_sorted(mock_k8s_resources) -> None:
 
     result = service.get_deployment_history("backend", "demo-app")
 
-    assert result["total_revisions"] == 2
-    assert result["revisions"][0]["revision"] == 1
-    assert result["revisions"][1]["revision"] == 2
-    assert result["revisions"][0]["images"] == ["myapp:v1"]
-    assert result["revisions"][1]["images"] == ["myapp:v2"]
+    assert len(result.revisions) == 2
+    assert result.revisions[0].revision == 1
+    assert result.revisions[1].revision == 2
+    assert result.revisions[0].images == ["myapp:v1"]
+    assert result.revisions[1].images == ["myapp:v2"]
 
 
 def test_get_deployment_history_empty(mock_k8s_resources) -> None:
@@ -430,8 +439,7 @@ def test_get_deployment_history_empty(mock_k8s_resources) -> None:
 
     result = service.get_deployment_history("backend", "demo-app")
 
-    assert result["total_revisions"] == 0
-    assert result["revisions"] == []
+    assert result.revisions == []
 
 
 def test_get_deployment_history_rejected_namespace(mock_k8s_resources) -> None:
@@ -461,7 +469,13 @@ def test_create_deployment_success(mock_k8s_resources) -> None:
         port=80,
     )
 
-    assert result == {"kind": "Deployment"}
+    assert result.operation == "create"
+    assert result.status == "requested"
+    assert result.deployment_name == "chatops-test"
+    assert result.namespace == "demo-app"
+    assert result.image == "nginx:alpine"
+    assert result.replicas == 2
+    assert result.port == 80
     apps_v1_api.create_namespaced_deployment.assert_called_once()
     call_kwargs = apps_v1_api.create_namespaced_deployment.call_args[1]
     assert call_kwargs["namespace"] == "demo-app"
@@ -502,9 +516,10 @@ def test_delete_deployment_success(mock_k8s_resources) -> None:
 
     result = service.delete_deployment("backend", "demo-app")
 
-    assert result["status"] == "deleted"
-    assert result["deployment"] == "backend"
-    assert result["namespace"] == "demo-app"
+    assert result.status == "requested"
+    assert result.operation == "delete"
+    assert result.deployment_name == "backend"
+    assert result.namespace == "demo-app"
     apps_v1_api.delete_namespaced_deployment.assert_called_once()
     call_kwargs = apps_v1_api.delete_namespaced_deployment.call_args[1]
     assert call_kwargs["name"] == "backend"
@@ -518,3 +533,46 @@ def test_delete_deployment_rejected_namespace(mock_k8s_resources) -> None:
         service.delete_deployment("backend", "kube-system")
 
     apps_v1_api.delete_namespaced_deployment.assert_not_called()
+
+
+def test_pause_and_resume_return_explicit_requested_results(
+    mock_k8s_resources,
+) -> None:
+    service, apps_v1_api, _, _api = mock_k8s_resources
+
+    paused = service.pause_deployment("backend", "demo-app")
+    resumed = service.resume_deployment("backend", "demo-app")
+
+    assert paused.operation == "pause"
+    assert paused.status == "requested"
+    assert resumed.operation == "resume"
+    assert resumed.status == "requested"
+    assert apps_v1_api.patch_namespaced_deployment.call_count == 2
+    pause_call, resume_call = apps_v1_api.patch_namespaced_deployment.call_args_list
+    assert pause_call.kwargs["body"] == {"spec": {"paused": True}}
+    assert resume_call.kwargs["body"] == {"spec": {"paused": False}}
+
+
+def test_verify_service_selector_returns_typed_result(
+    mock_k8s_resources,
+) -> None:
+    service, _, core_v1_api, _api = mock_k8s_resources
+    core_v1_api.read_namespaced_service.return_value = SimpleNamespace(
+        spec=SimpleNamespace(selector={"app": "backend"})
+    )
+    core_v1_api.list_namespaced_pod.return_value = SimpleNamespace(
+        items=[
+            SimpleNamespace(
+                metadata=SimpleNamespace(name="backend-123"),
+                status=SimpleNamespace(phase="Running"),
+            )
+        ]
+    )
+
+    result = service.verify_service_selector("backend", "demo-app")
+
+    assert result.status == "ok"
+    assert result.service_name == "backend"
+    assert result.selector == {"app": "backend"}
+    assert result.matched_pods == ["backend-123"]
+    assert result.running_pods == ["backend-123"]

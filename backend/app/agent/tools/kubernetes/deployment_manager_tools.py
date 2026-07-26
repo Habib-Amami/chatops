@@ -1,11 +1,19 @@
 """Agent tools for active Kubernetes Deployment orchestration."""
 
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TypeVar
 
 from langchain.tools import BaseTool, tool
 from langchain_core.tools import ToolException
 
+from app.agent.tools.kubernetes.formatters import (
+    format_deployment_details,
+    format_deployment_history,
+    format_deployment_list,
+    format_deployment_mutation,
+    format_deployment_status,
+    format_service_selector,
+)
 from app.platforms.kubernetes import KubernetesOperationError
 from app.platforms.kubernetes.services.deployment_manager_service import (
     DeploymentManagerService,
@@ -40,7 +48,7 @@ def create_deployment_manager_tools(
     @tool
     def list_kubernetes_deployments(
         namespace: str,
-    ) -> list[dict]:
+    ) -> str:
         """List all Deployments in a Kubernetes namespace with their replica counts and health.
 
         USE THIS when the user asks to:
@@ -51,17 +59,18 @@ def create_deployment_manager_tools(
         Args:
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        deployments = _call_deployment_service(
             lambda: deployment_manager_service.list_deployments(
                 namespace=namespace,
             )
         )
+        return format_deployment_list(deployments, namespace)
 
     @tool
     def get_kubernetes_deployment(
         name: str,
         namespace: str,
-    ) -> dict:
+    ) -> str:
         """Get full details for a single Kubernetes Deployment.
 
         USE THIS when the user asks to:
@@ -75,18 +84,19 @@ def create_deployment_manager_tools(
             name:      Deployment name (e.g. 'backend').
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        deployment = _call_deployment_service(
             lambda: deployment_manager_service.get_deployment(
                 name=name,
                 namespace=namespace,
             )
         )
+        return format_deployment_details(deployment)
 
     @tool
     def get_kubernetes_deployment_status(
         name: str,
         namespace: str,
-    ) -> dict:
+    ) -> str:
         """Get the rollout health status of a Kubernetes Deployment.
 
         USE THIS when the user asks:
@@ -101,18 +111,19 @@ def create_deployment_manager_tools(
             name:      Deployment name.
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        status = _call_deployment_service(
             lambda: deployment_manager_service.get_deployment_status(
                 name=name,
                 namespace=namespace,
             )
         )
+        return format_deployment_status(status)
 
     @tool
     def get_kubernetes_deployment_history(
         name: str,
         namespace: str,
-    ) -> dict:
+    ) -> str:
         """Get the revision history for a Kubernetes Deployment.
 
         USE THIS when the user asks:
@@ -127,12 +138,13 @@ def create_deployment_manager_tools(
             name:      Deployment name.
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        history = _call_deployment_service(
             lambda: deployment_manager_service.get_deployment_history(
                 name=name,
                 namespace=namespace,
             )
         )
+        return format_deployment_history(history)
 
     @tool
     def create_kubernetes_deployment(
@@ -142,7 +154,7 @@ def create_deployment_manager_tools(
         replicas: int = 1,
         container_name: str | None = None,
         port: int | None = None,
-    ) -> dict:
+    ) -> str:
         """Create a new Kubernetes Deployment in an allowed namespace.
 
         USE THIS when the user asks to:
@@ -161,7 +173,7 @@ def create_deployment_manager_tools(
             container_name: Container name — defaults to the deployment name.
             port:           Optional container port to expose.
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.create_deployment(
                 name=name,
                 namespace=namespace,
@@ -171,12 +183,13 @@ def create_deployment_manager_tools(
                 port=port,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def delete_kubernetes_deployment(
         name: str,
         namespace: str,
-    ) -> dict:
+    ) -> str:
         """Delete a Kubernetes Deployment from an allowed namespace.
 
         USE THIS when the user asks to:
@@ -190,49 +203,52 @@ def create_deployment_manager_tools(
             name:      Deployment name.
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.delete_deployment(
                 name=name,
                 namespace=namespace,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def scale_kubernetes_deployment(
         name: str,
         namespace: str,
         replicas: int,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Scale a Kubernetes deployment dynamically to a desired number of replicas.
 
         Use this when the user asks to scale up/down, resize, or change the replica
         count of a deployment (e.g., 'scale deployment frontend to 3 replicas' or
         'set replicas for database to 1').
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.scale_deployment(
                 name=name,
                 namespace=namespace,
                 replicas=replicas,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def restart_kubernetes_deployment(
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Trigger a rolling restart of a Kubernetes deployment.
 
         Use this to replace or restart failed pods, clear stuck states, or refresh
         configuration by performing a rollout restart (equivalent to 'kubectl rollout restart').
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.restart_deployment(
                 name=name,
                 namespace=namespace,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def update_kubernetes_deployment_image(
@@ -240,13 +256,13 @@ def create_deployment_manager_tools(
         namespace: str,
         container_name: str,
         new_image: str,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Update a container image inside a Kubernetes deployment.
 
         Use this to perform rolling updates of container images (e.g., 'update the backend
         container image to my-image:v2' or 'upgrade frontend image to version 1.2.3').
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.update_deployment_image(
                 name=name,
                 namespace=namespace,
@@ -254,13 +270,14 @@ def create_deployment_manager_tools(
                 new_image=new_image,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def rollback_kubernetes_deployment(
         name: str,
         namespace: str,
         revision: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Rollback a Kubernetes deployment to a previous revision.
 
         Use this when a rolling update fails, when pods crash after a new image update,
@@ -268,19 +285,20 @@ def create_deployment_manager_tools(
         version (e.g., 'rollback deployment frontend', 'undo last deployment for backend',
         or 'rollback frontend to revision 2').
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.rollback_deployment(
                 name=name,
                 namespace=namespace,
                 revision=revision,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def pause_kubernetes_deployment(
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Pause a Kubernetes deployment to suspend its rollout controller.
 
         Use this when the user asks to pause, suspend, or freeze a deployment
@@ -294,18 +312,19 @@ def create_deployment_manager_tools(
             name:      Deployment name (e.g. 'backend').
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.pause_deployment(
                 name=name,
                 namespace=namespace,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def resume_kubernetes_deployment(
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Resume a paused Kubernetes deployment to apply its pending rollout.
 
         Use this when the user asks to resume, unfreeze, or unpause a deployment
@@ -318,18 +337,19 @@ def create_deployment_manager_tools(
             name:      Deployment name (e.g. 'backend').
             namespace: Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.resume_deployment(
                 name=name,
                 namespace=namespace,
             )
         )
+        return format_deployment_mutation(result)
 
     @tool
     def verify_kubernetes_service_selector(
         service_name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> str:
         """Verify that a Kubernetes Service's selector matches at least one live pod.
 
         USE THIS when:
@@ -344,12 +364,13 @@ def create_deployment_manager_tools(
             service_name: Kubernetes Service name (e.g. 'backend', 'frontend').
             namespace:    Kubernetes namespace (must be in the allowed list).
         """
-        return _call_deployment_service(
+        result = _call_deployment_service(
             lambda: deployment_manager_service.verify_service_selector(
                 service_name=service_name,
                 namespace=namespace,
             )
         )
+        return format_service_selector(result)
 
     tools = [
         list_kubernetes_deployments,
