@@ -1,7 +1,7 @@
 """Active Kubernetes Deployment management and orchestration."""
 
 import datetime
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from kubernetes import client as kubernetes_client
 
@@ -12,6 +12,17 @@ from app.platforms.kubernetes import (
     KubernetesResourceNotFoundError,
     execute_kubernetes_api_call,
     validate_kubernetes_namespace,
+)
+from app.platforms.kubernetes.models import (
+    DeploymentConditionSummary,
+    DeploymentContainerSummary,
+    DeploymentDetails,
+    DeploymentHistory,
+    DeploymentMutationResult,
+    DeploymentRevisionSummary,
+    DeploymentStatusSummary,
+    DeploymentSummary,
+    ServiceSelectorResult,
 )
 
 
@@ -32,7 +43,7 @@ class DeploymentManagerService:
     # Read / Inspection Methods
     # ------------------------------------------------------------------
 
-    def list_deployments(self, namespace: str) -> list[dict[str, Any]]:
+    def list_deployments(self, namespace: str) -> list[DeploymentSummary]:
         """List all Deployments in an allowed namespace.
 
         Returns a condensed list of each deployment's name, namespace,
@@ -58,7 +69,7 @@ class DeploymentManagerService:
             ),
         )
 
-        result: list[dict[str, Any]] = []
+        result: list[DeploymentSummary] = []
         for dep in raw_response.items or []:
             meta = dep.metadata
             spec = dep.spec
@@ -66,25 +77,25 @@ class DeploymentManagerService:
             if meta is None:
                 continue
             result.append(
-                {
-                    "name": meta.name,
-                    "namespace": meta.namespace or namespace,
-                    "labels": meta.labels or {},
-                    "desired_replicas": spec.replicas if spec else None,
-                    "ready_replicas": status.ready_replicas if status else None,
-                    "available_replicas": status.available_replicas if status else None,
-                    "updated_replicas": status.updated_replicas if status else None,
-                    "paused": bool(spec.paused) if spec else False,
-                    "conditions": [
-                        {
-                            "type": c.type,
-                            "status": c.status,
-                            "reason": c.reason,
-                            "message": c.message,
-                        }
-                        for c in (status.conditions or [] if status else [])
+                DeploymentSummary(
+                    name=meta.name or "unknown",
+                    namespace=meta.namespace or namespace,
+                    labels=meta.labels or {},
+                    desired_replicas=spec.replicas if spec else None,
+                    ready_replicas=status.ready_replicas if status else None,
+                    available_replicas=status.available_replicas if status else None,
+                    updated_replicas=status.updated_replicas if status else None,
+                    paused=bool(spec.paused) if spec else False,
+                    conditions=[
+                        DeploymentConditionSummary(
+                            type=condition.type or "Unknown",
+                            status=condition.status,
+                            reason=condition.reason,
+                            message=condition.message,
+                        )
+                        for condition in (status.conditions or [] if status else [])
                     ],
-                }
+                )
             )
         return result
 
@@ -92,11 +103,11 @@ class DeploymentManagerService:
         self,
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentDetails:
         """Get detailed information for a single named Deployment.
 
-        Returns a structured dictionary including metadata, replica counts,
-        container image(s), and current rollout conditions.
+        Returns normalized metadata, replica counts, container image(s), and
+        current rollout conditions.
 
         Args:
             name:      Deployment name (e.g. 'backend').
@@ -128,53 +139,55 @@ class DeploymentManagerService:
         meta = raw.metadata
         spec = raw.spec
         status = raw.status
-        containers = []
+        containers: list[DeploymentContainerSummary] = []
         if spec and spec.template and spec.template.spec:
             for c in spec.template.spec.containers or []:
                 containers.append(
-                    {
-                        "name": c.name,
-                        "image": c.image,
-                        "ports": [p.container_port for p in (c.ports or [])],
-                    }
+                    DeploymentContainerSummary(
+                        name=c.name,
+                        image=c.image,
+                        ports=[p.container_port for p in (c.ports or [])],
+                    )
                 )
 
-        return {
-            "name": meta.name if meta else name,
-            "namespace": (meta.namespace if meta else None) or namespace,
-            "labels": meta.labels if meta else {},
-            "annotations": meta.annotations if meta else {},
-            "creation_timestamp": (
+        return DeploymentDetails(
+            name=(meta.name if meta else None) or name,
+            namespace=(meta.namespace if meta else None) or namespace,
+            labels=(meta.labels if meta else None) or {},
+            annotations=(meta.annotations if meta else None) or {},
+            creation_timestamp=(
                 meta.creation_timestamp.isoformat()
                 if meta and meta.creation_timestamp
                 else None
             ),
-            "desired_replicas": spec.replicas if spec else None,
-            "ready_replicas": status.ready_replicas if status else None,
-            "available_replicas": status.available_replicas if status else None,
-            "updated_replicas": status.updated_replicas if status else None,
-            "paused": bool(spec.paused) if spec else False,
-            "strategy": (spec.strategy.type if spec and spec.strategy else None),
-            "containers": containers,
-            "conditions": [
-                {
-                    "type": c.type,
-                    "status": c.status,
-                    "reason": c.reason,
-                    "message": c.message,
-                    "last_update": (
-                        c.last_update_time.isoformat() if c.last_update_time else None
+            desired_replicas=spec.replicas if spec else None,
+            ready_replicas=status.ready_replicas if status else None,
+            available_replicas=status.available_replicas if status else None,
+            updated_replicas=status.updated_replicas if status else None,
+            paused=bool(spec.paused) if spec else False,
+            strategy=spec.strategy.type if spec and spec.strategy else None,
+            containers=containers,
+            conditions=[
+                DeploymentConditionSummary(
+                    type=condition.type or "Unknown",
+                    status=condition.status,
+                    reason=condition.reason,
+                    message=condition.message,
+                    last_update=(
+                        condition.last_update_time.isoformat()
+                        if condition.last_update_time
+                        else None
                     ),
-                }
-                for c in (status.conditions or [] if status else [])
+                )
+                for condition in (status.conditions or [] if status else [])
             ],
-        }
+        )
 
     def get_deployment_status(
         self,
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentStatusSummary:
         """Get a focused rollout health snapshot for a single Deployment.
 
         Returns replica counts, readiness, and rollout conditions without
@@ -217,7 +230,9 @@ class DeploymentManagerService:
 
         # Determine a human-readable rollout state
         if desired is not None and ready == desired and updated == desired:
-            rollout_state = "complete"
+            rollout_state: Literal["complete", "in_progress", "degraded", "unknown"] = (
+                "complete"
+            )
         elif updated is not None and desired is not None and updated < desired:
             rollout_state = "in_progress"
         elif ready is not None and desired is not None and ready < desired:
@@ -225,31 +240,31 @@ class DeploymentManagerService:
         else:
             rollout_state = "unknown"
 
-        return {
-            "name": name,
-            "namespace": namespace,
-            "rollout_state": rollout_state,
-            "desired_replicas": desired,
-            "ready_replicas": ready,
-            "available_replicas": available,
-            "updated_replicas": updated,
-            "paused": bool(spec.paused) if spec else False,
-            "conditions": [
-                {
-                    "type": c.type,
-                    "status": c.status,
-                    "reason": c.reason,
-                    "message": c.message,
-                }
-                for c in (status.conditions or [] if status else [])
+        return DeploymentStatusSummary(
+            name=name,
+            namespace=namespace,
+            rollout_state=rollout_state,
+            desired_replicas=desired,
+            ready_replicas=ready,
+            available_replicas=available,
+            updated_replicas=updated,
+            paused=bool(spec.paused) if spec else False,
+            conditions=[
+                DeploymentConditionSummary(
+                    type=condition.type or "Unknown",
+                    status=condition.status,
+                    reason=condition.reason,
+                    message=condition.message,
+                )
+                for condition in (status.conditions or [] if status else [])
             ],
-        }
+        )
 
     def get_deployment_history(
         self,
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentHistory:
         """Get the rollout revision history for a single Deployment.
 
         Queries all ReplicaSets owned by the Deployment and returns them
@@ -288,7 +303,7 @@ class DeploymentManagerService:
             ),
         )
 
-        history: list[dict[str, Any]] = []
+        history: list[DeploymentRevisionSummary] = []
         for rs in replica_sets.items or []:
             meta = rs.metadata
             if meta is None or not meta.owner_references:
@@ -315,28 +330,27 @@ class DeploymentManagerService:
                 ]
 
             history.append(
-                {
-                    "revision": revision,
-                    "replica_set": meta.name,
-                    "images": images,
-                    "change_cause": annotations.get(
+                DeploymentRevisionSummary(
+                    revision=revision,
+                    replica_set=meta.name,
+                    images=images,
+                    change_cause=annotations.get(
                         "kubernetes.io/change-cause", "<none>"
                     ),
-                    "created_at": (
+                    created_at=(
                         meta.creation_timestamp.isoformat()
                         if meta.creation_timestamp
                         else None
                     ),
-                }
+                )
             )
 
-        history.sort(key=lambda e: e["revision"])
-        return {
-            "deployment": name,
-            "namespace": namespace,
-            "total_revisions": len(history),
-            "revisions": history,
-        }
+        history.sort(key=lambda revision: revision.revision)
+        return DeploymentHistory(
+            deployment_name=name,
+            namespace=namespace,
+            revisions=history,
+        )
 
     # ------------------------------------------------------------------
     # Create / Delete Methods
@@ -352,7 +366,7 @@ class DeploymentManagerService:
         container_name: str | None = None,
         port: int | None = None,
         labels: dict[str, str] | None = None,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Create a new Deployment in an allowed namespace.
 
         Builds and submits a minimal, secure Deployment manifest.
@@ -433,7 +447,7 @@ class DeploymentManagerService:
             ),
         )
 
-        raw_response = execute_kubernetes_api_call(
+        execute_kubernetes_api_call(
             operation="create Deployment",
             resource=f"{namespace}/{name}",
             call=lambda: self._apps_v1_api.create_namespaced_deployment(
@@ -441,16 +455,25 @@ class DeploymentManagerService:
                 body=deployment,
             ),
         )
-        return cast(
-            dict[str, Any],
-            self._api_client.sanitize_for_serialization(raw_response),
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="create",
+            replicas=replicas,
+            container_name=effective_container_name,
+            image=image,
+            port=port,
+            message=(
+                "The Deployment creation request was accepted. Read its rollout "
+                "status to verify that the requested replicas become ready."
+            ),
         )
 
     def delete_deployment(
         self,
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Delete a Deployment from an allowed namespace.
 
         The Kubernetes garbage collector will cascade-delete the owned
@@ -478,15 +501,16 @@ class DeploymentManagerService:
                 ),
             ),
         )
-        return {
-            "status": "deleted",
-            "deployment": name,
-            "namespace": namespace,
-            "message": (
-                f"Deployment '{name}' in namespace '{namespace}' has been deleted. "
-                "Kubernetes will cascade-delete its ReplicaSets and Pods."
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="delete",
+            message=(
+                "The deletion request was accepted. Kubernetes will "
+                "foreground-delete owned ReplicaSets and Pods; verify absence "
+                "with a follow-up read."
             ),
-        }
+        )
 
     # ------------------------------------------------------------------
     # Mutation Methods (Scale / Restart / Update / Rollback / Pause / Resume)
@@ -497,12 +521,12 @@ class DeploymentManagerService:
         name: str,
         namespace: str,
         replicas: int,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Scale a deployment to the specified number of replicas."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
 
         body = {"spec": {"replicas": replicas}}
-        raw_response = execute_kubernetes_api_call(
+        execute_kubernetes_api_call(
             operation="scale Deployment",
             resource=f"{namespace}/{name}",
             call=lambda: self._apps_v1_api.patch_namespaced_deployment_scale(
@@ -511,16 +535,22 @@ class DeploymentManagerService:
                 body=body,
             ),
         )
-        return cast(
-            dict[str, Any],
-            self._api_client.sanitize_for_serialization(raw_response),
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="scale",
+            replicas=replicas,
+            message=(
+                "The scale request was accepted. Read rollout status to verify "
+                "desired and ready replicas."
+            ),
         )
 
     def restart_deployment(
         self,
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Trigger a rolling restart of a deployment."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
 
@@ -534,7 +564,7 @@ class DeploymentManagerService:
                 }
             }
         }
-        raw_response = execute_kubernetes_api_call(
+        execute_kubernetes_api_call(
             operation="restart Deployment",
             resource=f"{namespace}/{name}",
             call=lambda: self._apps_v1_api.patch_namespaced_deployment(
@@ -543,9 +573,14 @@ class DeploymentManagerService:
                 body=body,
             ),
         )
-        return cast(
-            dict[str, Any],
-            self._api_client.sanitize_for_serialization(raw_response),
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="restart",
+            message=(
+                "The rolling restart request was accepted. Read rollout status "
+                "to verify completion."
+            ),
         )
 
     def update_deployment_image(
@@ -554,7 +589,7 @@ class DeploymentManagerService:
         namespace: str,
         container_name: str,
         new_image: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Update the image of a specific container in a deployment."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
 
@@ -572,7 +607,7 @@ class DeploymentManagerService:
                 }
             }
         }
-        raw_response = execute_kubernetes_api_call(
+        execute_kubernetes_api_call(
             operation="update Deployment image",
             resource=f"{namespace}/{name}",
             call=lambda: self._apps_v1_api.patch_namespaced_deployment(
@@ -581,9 +616,16 @@ class DeploymentManagerService:
                 body=body,
             ),
         )
-        return cast(
-            dict[str, Any],
-            self._api_client.sanitize_for_serialization(raw_response),
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="update_image",
+            container_name=container_name,
+            image=new_image,
+            message=(
+                "The image update request was accepted. Read rollout status to "
+                "verify completion."
+            ),
         )
 
     def rollback_deployment(
@@ -591,7 +633,7 @@ class DeploymentManagerService:
         name: str,
         namespace: str,
         revision: int | None = None,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Rollback a deployment to a previous revision."""
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
 
@@ -676,7 +718,7 @@ class DeploymentManagerService:
             target_template
         )
         body = {"spec": {"template": sanitized_template}}
-        raw_response = execute_kubernetes_api_call(
+        execute_kubernetes_api_call(
             operation=f"rollback Deployment to revision {target_revision}",
             resource=f"{namespace}/{name}",
             call=lambda: self._apps_v1_api.patch_namespaced_deployment(
@@ -685,9 +727,15 @@ class DeploymentManagerService:
                 body=body,
             ),
         )
-        return cast(
-            dict[str, Any],
-            self._api_client.sanitize_for_serialization(raw_response),
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="rollback",
+            revision=target_revision,
+            message=(
+                "The rollback request was accepted. Read rollout status and "
+                "history to verify the active revision."
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -698,7 +746,7 @@ class DeploymentManagerService:
         self,
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Pause a deployment to suspend its rollout controller.
 
         While paused, any changes to the deployment spec (e.g. image updates)
@@ -716,21 +764,21 @@ class DeploymentManagerService:
                 body=body,
             ),
         )
-        return {
-            "status": "paused",
-            "deployment": name,
-            "namespace": namespace,
-            "message": (
-                f"Deployment '{name}' in namespace '{namespace}' has been paused. "
-                "No new rollout will start until it is resumed."
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="pause",
+            message=(
+                "The pause request was accepted. Read Deployment status to "
+                "verify that the rollout is paused."
             ),
-        }
+        )
 
     def resume_deployment(
         self,
         name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> DeploymentMutationResult:
         """Resume a paused deployment to trigger its pending rollout.
 
         Any spec changes accumulated while paused are applied immediately
@@ -748,15 +796,15 @@ class DeploymentManagerService:
                 body=body,
             ),
         )
-        return {
-            "status": "resumed",
-            "deployment": name,
-            "namespace": namespace,
-            "message": (
-                f"Deployment '{name}' in namespace '{namespace}' has been resumed. "
-                "A rolling update will now apply any accumulated changes."
+        return DeploymentMutationResult(
+            deployment_name=name,
+            namespace=namespace,
+            operation="resume",
+            message=(
+                "The resume request was accepted. Read rollout status to verify "
+                "that pending changes are progressing."
             ),
-        }
+        )
 
     # ------------------------------------------------------------------
     # Network Mesh Diagnostic — Service Selector / Labels Mismatch
@@ -766,7 +814,7 @@ class DeploymentManagerService:
         self,
         service_name: str,
         namespace: str,
-    ) -> dict[str, Any]:
+    ) -> ServiceSelectorResult:
         """Verify that a Kubernetes Service selector matches at least one live pod.
 
         A common misconfiguration is a Service whose label selector does not
@@ -775,8 +823,8 @@ class DeploymentManagerService:
         warning for the LLM to report to the user.
 
         Returns:
-            A structured dict with the selector used, matched pods, and an
-            explicit alert if no pods are bound to the service.
+            A normalized result with the selector, matched Pods, and an
+            explicit status when no Pods are bound to the Service.
         """
         validate_kubernetes_namespace(namespace, self._allowed_namespaces)
 
@@ -794,18 +842,19 @@ class DeploymentManagerService:
         selector: dict[str, str] = (service.spec.selector or {}) if service.spec else {}
 
         if not selector:
-            return {
-                "status": "warning",
-                "service": service_name,
-                "namespace": namespace,
-                "selector": {},
-                "matched_pods": [],
-                "message": (
+            return ServiceSelectorResult(
+                status="warning",
+                service_name=service_name,
+                namespace=namespace,
+                selector={},
+                matched_pods=[],
+                running_pods=[],
+                message=(
                     f"Service '{service_name}' has NO selector defined. "
                     "It cannot route traffic to any pod automatically. "
                     "This is intentional only for ExternalName or headless services."
                 ),
-            }
+            )
 
         label_selector = ",".join(f"{key}={value}" for key, value in selector.items())
         pods = cast(
@@ -835,31 +884,31 @@ class DeploymentManagerService:
         ]
 
         if not all_matched_pods:
-            return {
-                "status": "labels_mismatch",
-                "service": service_name,
-                "namespace": namespace,
-                "selector": selector,
-                "matched_pods": [],
-                "running_pods": [],
-                "message": (
+            return ServiceSelectorResult(
+                status="labels_mismatch",
+                service_name=service_name,
+                namespace=namespace,
+                selector=selector,
+                matched_pods=[],
+                running_pods=[],
+                message=(
                     f"⚠️  LABELS MISMATCH DETECTED for Service '{service_name}'. "
                     f"Selector {selector} does not match any pod in namespace "
                     f"'{namespace}'. Traffic sent to this service will be dropped. "
                     "Verify that your pods carry the correct labels."
                 ),
-            }
+            )
 
-        return {
-            "status": "ok",
-            "service": service_name,
-            "namespace": namespace,
-            "selector": selector,
-            "matched_pods": all_matched_pods,
-            "running_pods": running_pods,
-            "message": (
+        return ServiceSelectorResult(
+            status="ok",
+            service_name=service_name,
+            namespace=namespace,
+            selector=selector,
+            matched_pods=all_matched_pods,
+            running_pods=running_pods,
+            message=(
                 f"Service '{service_name}' selector {selector} matches "
                 f"{len(all_matched_pods)} pod(s), of which "
                 f"{len(running_pods)} are Running."
             ),
-        }
+        )

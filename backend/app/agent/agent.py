@@ -48,6 +48,20 @@ MUTATION_APPROVALS: dict[str, Any] = {
             "recreate the Pod; an unmanaged Pod will not be recreated automatically."
         ),
     },
+    "create_kubernetes_deployment": {
+        "allowed_decisions": ["approve", "reject"],
+        "description": (
+            "Review this Deployment creation, including its namespace, image, "
+            "replica count, container name, and optional port."
+        ),
+    },
+    "delete_kubernetes_deployment": {
+        "allowed_decisions": ["approve", "reject"],
+        "description": (
+            "Review this Deployment deletion carefully. Kubernetes will also "
+            "remove its owned ReplicaSets and Pods."
+        ),
+    },
     "scale_kubernetes_deployment": {
         "allowed_decisions": ["approve", "reject"],
         "description": "Review the requested Deployment replica count.",

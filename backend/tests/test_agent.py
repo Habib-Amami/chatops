@@ -17,6 +17,7 @@ from app.agent.tools.kubernetes.formatters import (
 from app.agent.tools.kubernetes import create_pod_tools
 from app.platforms.kubernetes import KubernetesOperationError
 from app.platforms.kubernetes.models import (
+    DeploymentMutationResult,
     PodConditionSummary,
     PodContainerStateSummary,
     PodContainerSummary,
@@ -890,6 +891,20 @@ def test_agent_does_not_delete_pod_after_rejection() -> None:
     ("tool_name", "tool_args", "service_method"),
     [
         (
+            "create_kubernetes_deployment",
+            {
+                "name": "api",
+                "namespace": "chatops-demo",
+                "image": "example/api:v1",
+            },
+            "create_deployment",
+        ),
+        (
+            "delete_kubernetes_deployment",
+            {"name": "api", "namespace": "chatops-demo"},
+            "delete_deployment",
+        ),
+        (
             "scale_kubernetes_deployment",
             {"name": "api", "namespace": "chatops-demo", "replicas": 2},
             "scale_deployment",
@@ -974,10 +989,13 @@ def test_agent_requires_approval_before_every_deployment_mutation(
 
 def test_agent_executes_approved_deployment_mutation_once_and_audits_it() -> None:
     deployment_service = MagicMock()
-    deployment_service.scale_deployment.return_value = {
-        "deployment": "api",
-        "replicas": 2,
-    }
+    deployment_service.scale_deployment.return_value = DeploymentMutationResult(
+        deployment_name="api",
+        namespace="chatops-demo",
+        operation="scale",
+        replicas=2,
+        message="Read rollout status to verify the requested replica count.",
+    )
     audit_recorder = MagicMock()
     model = ToolCallingFakeChatModel(
         messages=iter(
@@ -1093,4 +1111,197 @@ def test_agent_does_not_execute_or_audit_rejected_deployment_mutation() -> None:
     assert "__interrupt__" not in result
     assert result["messages"][-1].content == ("The Deployment scaling was cancelled.")
     deployment_service.scale_deployment.assert_not_called()
+    audit_recorder.record.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    (
+        "tool_name",
+        "service_method",
+        "tool_args",
+        "expected_service_args",
+        "service_result",
+    ),
+    [
+        (
+            "create_kubernetes_deployment",
+            "create_deployment",
+            {
+                "name": "manual-api",
+                "namespace": "chatops-demo",
+                "image": "example/api:v1",
+            },
+            {
+                "name": "manual-api",
+                "namespace": "chatops-demo",
+                "image": "example/api:v1",
+                "replicas": 1,
+                "container_name": None,
+                "port": None,
+            },
+            DeploymentMutationResult(
+                deployment_name="manual-api",
+                namespace="chatops-demo",
+                operation="create",
+                replicas=1,
+                image="example/api:v1",
+                message="Read rollout status to verify creation.",
+            ),
+        ),
+        (
+            "delete_kubernetes_deployment",
+            "delete_deployment",
+            {
+                "name": "manual-api",
+                "namespace": "chatops-demo",
+            },
+            {
+                "name": "manual-api",
+                "namespace": "chatops-demo",
+            },
+            DeploymentMutationResult(
+                deployment_name="manual-api",
+                namespace="chatops-demo",
+                operation="delete",
+                message="Read Deployment state to verify deletion.",
+            ),
+        ),
+    ],
+)
+def test_agent_executes_approved_deployment_create_or_delete_once(
+    tool_name: str,
+    service_method: str,
+    tool_args: dict[str, object],
+    expected_service_args: dict[str, object],
+    service_result: DeploymentMutationResult,
+) -> None:
+    deployment_service = MagicMock()
+    getattr(deployment_service, service_method).return_value = service_result
+    audit_recorder = MagicMock()
+    model = ToolCallingFakeChatModel(
+        messages=iter(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": tool_name,
+                            "args": tool_args,
+                            "id": f"{tool_name}-approved",
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                AIMessage(content="The Deployment request was accepted."),
+            ]
+        )
+    )
+    agent = create_chatops_agent(
+        model,
+        MagicMock(),
+        deployment_service,
+        MagicMock(),
+        MagicMock(),
+        checkpointer=InMemorySaver(),
+        audit_recorder=audit_recorder,
+    )
+    config: RunnableConfig = {
+        "configurable": {"thread_id": f"{tool_name}-approval-thread"}
+    }
+
+    interrupted = agent.invoke(
+        {"messages": [{"role": "user", "content": "Perform the Deployment request"}]},
+        config=config,
+    )
+    result = agent.invoke(
+        Command(resume={"decisions": [{"type": "approve"}]}),
+        config=config,
+    )
+
+    assert "__interrupt__" in interrupted
+    assert "__interrupt__" not in result
+    assert result["messages"][-1].content == "The Deployment request was accepted."
+    getattr(deployment_service, service_method).assert_called_once_with(
+        **expected_service_args
+    )
+    audit_recorder.record.assert_called_once()
+    event = audit_recorder.record.call_args.args[0]
+    assert isinstance(event, MutationAuditEvent)
+    assert event.tool_name == tool_name
+    assert event.outcome == "success"
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "service_method", "tool_args"),
+    [
+        (
+            "create_kubernetes_deployment",
+            "create_deployment",
+            {
+                "name": "manual-api",
+                "namespace": "chatops-demo",
+                "image": "example/api:v1",
+            },
+        ),
+        (
+            "delete_kubernetes_deployment",
+            "delete_deployment",
+            {
+                "name": "manual-api",
+                "namespace": "chatops-demo",
+            },
+        ),
+    ],
+)
+def test_agent_rejects_deployment_create_or_delete_without_retrying(
+    tool_name: str,
+    service_method: str,
+    tool_args: dict[str, object],
+) -> None:
+    deployment_service = MagicMock()
+    audit_recorder = MagicMock()
+    model = ToolCallingFakeChatModel(
+        messages=iter(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": tool_name,
+                            "args": tool_args,
+                            "id": f"{tool_name}-rejected",
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                AIMessage(content="The Deployment request was cancelled."),
+            ]
+        )
+    )
+    agent = create_chatops_agent(
+        model,
+        MagicMock(),
+        deployment_service,
+        MagicMock(),
+        MagicMock(),
+        checkpointer=InMemorySaver(),
+        audit_recorder=audit_recorder,
+    )
+    config: RunnableConfig = {
+        "configurable": {"thread_id": f"{tool_name}-rejection-thread"}
+    }
+
+    interrupted = agent.invoke(
+        {"messages": [{"role": "user", "content": "Perform the Deployment request"}]},
+        config=config,
+    )
+    result = agent.invoke(
+        Command(resume={"decisions": [{"type": "reject"}]}),
+        config=config,
+    )
+
+    assert "__interrupt__" in interrupted
+    assert "__interrupt__" not in result
+    assert result["messages"][-1].content == "The Deployment request was cancelled."
+    getattr(deployment_service, service_method).assert_not_called()
     audit_recorder.record.assert_not_called()

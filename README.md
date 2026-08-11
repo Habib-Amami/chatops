@@ -31,10 +31,13 @@ that application.
 
 ## Choose a development setup
 
+- [Project handoff](docs/HANDOFF.md) — current capabilities, architecture,
+  safety gaps, demo flow, component map, and prioritized next work.
 - [Local Linux setup](docs/setup/linux/README.md) — current, automated workflow
   using the root `Makefile`.
-- `docs/setup/windows-vm/` — reserved for the teammate-owned Windows and VM
-  workflow.
+- [Windows/VM launcher](scripts/setup/windows-vm/start-all.ps1) —
+  partial startup automation for the Windows/VM workflow; a complete
+  environment guide is still pending.
 
 ## Local Linux quick start
 
